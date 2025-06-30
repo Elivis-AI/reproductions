@@ -91,16 +91,6 @@ class IntDomain(Domain):
         val[id_pairs] = pairs
 
         return val
-
-
-class CategoricalDomain(Domain):
-    def __init__(self, categories, seed=None):
-        self.rng = np.random.default_rng(seed)
-        self.categories = np.array(categories)
-        self.dim = self.categories.shape[:-1]
-
-    def gen(self, num):
-        return self.rng.choice(self.categories, size=(num, *self.dim))
     
 
 class PermutationDomain(Domain):

@@ -10,6 +10,7 @@ class Domain(ABC):
 
     @abstractmethod
     def gen(self, num):
+        """Generate num samples in the domain."""
         pass
 
 
@@ -88,19 +89,6 @@ class IntDomain(Domain):
         pairs[::2], pairs[1::2] = x + delta, y - delta
         val[idx] = pairs
         return val
-
-class CategoricalDomain(Domain):
-    def __init__(self, categories, device='cpu'):
-        super().__init__(device)
-        self.categories = torch.tensor(categories, device=self.device)
-        self.dim = self.categories.shape[:-1]
-
-    def gen(self, num):
-        shape = (num, *self.dim)
-        flat_cat = self.categories.view(-1)
-        idx = torch.randint(0, len(flat_cat), shape, device=self.device)
-        return flat_cat[idx]
-
 
 
 class PermutationDomain(Domain):
