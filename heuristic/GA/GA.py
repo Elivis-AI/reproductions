@@ -125,9 +125,30 @@ class PermutationDomain(Domain):
         j = self.rng.integers(0, self.n - 1, size=len(rows))
         j = j + (j >= i)  # 保证 i ≠ j
 
-        # 执行交换
         out[rows, i], out[rows, j] = out[rows, j], out[rows, i]
 
+        return out
+    
+    def cross(self, val, k, p=0.4):
+        assert 0 <= p <= 1
+        num = val.shape[0]
+        
+        def roll_rows(a, shifts):
+            """
+            a: (N, D) 数组
+            shifts: (N,) 每一行右循环移动多少位
+            """
+            N, D = a.shape
+            idx = (np.arange(D)[None, :] - shifts[:, None]) % D  # shape (N, D)
+            return a[np.arange(N)[:, None], idx]
+
+        # if np.any(mask):
+        mask = self.rng.random(num) < p
+        shift = self.rng.integers(0, self.n) * mask
+        out = roll_rows(val, shift)
+
+        rows = np.where(mask)[0]  # 被选中的行的索引 (K,)
+        out[rows, :k] = out[rows, :k][:, ::-1]
         return out
 
 
@@ -141,7 +162,8 @@ def GA(domain: RealDomain, fun_fitness, num=50, n_step=50):
             group = domain.select(group, fitness)
             group = domain.cross(group)
             group = domain.mutate(group, p=domain.rng.random()**(1.0-n/n_step)) # adaptive mutation probability
-            group[n%num] = best
+            # group[n%num] = best
+            group[np.argmin(fitness, axis=0)] = best # replace the worst
 
             pbar.set_postfix({'best_val': fitness.min()})
             pbar.update(1)
