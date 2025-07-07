@@ -165,5 +165,5 @@ if __name__ == '__main__':
     SEED = 42
     torch.manual_seed(SEED)
     # test
-    # test_tsp()
-    hard_tsp(size=50)
+    test_tsp()
+    # hard_tsp(size=50)

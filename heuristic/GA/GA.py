@@ -98,10 +98,8 @@ class PermutationDomain(Domain):
 
     def gen(self, num):
         # 生成num个随机排列，形状 (num, n)
-        perms = []
-        for _ in range(num):
-            perms.append(torch.randperm(self.n, device=self.device))
-        return torch.stack(perms)
+        # return torch.stack([torch.randperm(self.n, device=self.device) for _ in range(num)], dim=0)
+        return torch.argsort(torch.rand((num, self.n), device=self.device), dim=1)
 
     def mutate(self, val, p=0.4):
         assert 0 <= p <= 1
