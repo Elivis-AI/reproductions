@@ -64,6 +64,9 @@ def train(args):
     for param in model.xxx_module.parameters():
         param.requires_grad = False
 
+    print(f'参数量：{sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
+    print(f'可训练参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
+
     model.train()
     running_loss = 0.0
 
@@ -76,18 +79,27 @@ def train(args):
                 loss = cal_loss(pred, by)
                 running_loss += loss.item()
             
-            # backward
+            ### vanilla backpropgation
             # optimizer.zero_grad()
             # loss.backward()
             # torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             # optimizer.step()
+
+            ## backpropgation with AMP
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            scaler.step(optimizer)
+            scaler.step(optimizer) # replace optimizer.step()
             scaler.update()
-            optimizer.step()
+
+            ### backward with grad accumulation
+            # loss.backward()
+            # step += 1
+            # if (step + 1) % accumulation_steps == 0:
+            #     torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            #     optimizer.step()
+            #     optimizer.zero_grad(set_to_none=True)
 
         train_loss = running_loss / len(train_loader.dataset)
         val_loss = evaluate(model, val_loader, device)
