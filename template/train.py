@@ -77,9 +77,16 @@ def train(args):
                 running_loss += loss.item()
             
             # backward
+            # optimizer.zero_grad()
+            # loss.backward()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            # optimizer.step()
             optimizer.zero_grad()
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            scaler.step(optimizer)
+            scaler.update()
             optimizer.step()
 
         train_loss = running_loss / len(train_loader.dataset)
@@ -90,6 +97,8 @@ def train(args):
             torch.save(model.state_dict(), f"epoch_{epoch}.pth")
 
 
+def distributed_train(args):
+    from distributed import init_distributed_mode
 
 def get_parser():
     parser = argparse.ArgumentParser()
