@@ -24,20 +24,22 @@ torch.backends.cudnn.benchmark = False
 
 
 def cal_loss(pred, target):
-    loss = F.mse_loss(pred, target, reduction='sum')
-    return loss
+    # loss = F.mse_loss(pred, target, reduction='sum')
+    # return loss
+    pass
 
 
 @torch.no_grad()
 def evaluate(model, loader, device):
-    model.eval()
-    loss_sum, mae_sum = 0.0, 0.0
-    for bx, by in loader:
-        bx, by = bx.to(device), by.to(device)
-        pred = model(bx)
-        loss_sum += cal_loss(pred, by).item()
-        # mae_sum += torch.sum(torch.abs(pred - by)).item()
-    return loss_sum / len(loader.dataset) # , mae_sum
+    # model.eval()
+    # loss_sum, mae_sum = 0.0, 0.0
+    # for bx, by in loader:
+    #     bx, by = bx.to(device), by.to(device)
+    #     pred = model(bx)
+    #     loss_sum += cal_loss(pred, by).item()
+    #     # mae_sum += torch.sum(torch.abs(pred - by)).item()
+    # return loss_sum / len(loader.dataset) # , mae_sum
+    pass
 
 
 def train(args):
@@ -54,15 +56,15 @@ def train(args):
 
     # amp
     if args.amp and torch.cuda.is_available():
-        ctx = torch.cuda.amp.autocast()
+        precision_context = torch.cuda.amp.autocast()
     else:
         from contextlib import nullcontext
-        ctx = nullcontext()
+        precision_context = nullcontext()
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype in ['float16', 'bfloat16']))
 
     # frozen some parameters if needed
-    for param in model.xxx_module.parameters():
-        param.requires_grad = False
+    # for param in model.xxx_module.parameters():
+    #     param.requires_grad = False
 
     print(f'参数量：{sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
     print(f'可训练参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
@@ -74,7 +76,7 @@ def train(args):
         for bx, by in train_loader:
             # forward
             bx, by = bx.to(device), by.to(device)
-            with ctx:
+            with precision_context:
                 pred = model(bx)
                 loss = cal_loss(pred, by)
                 running_loss += loss.item()
