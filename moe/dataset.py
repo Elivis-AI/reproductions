@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 class MNIST(Dataset):
     def __init__(self, is_train=True):
         super().__init__()
-        self.dataset = datasets.MNIST('./dataset/mnist/', train=is_train, download=True)
+        self.dataset = datasets.MNIST('~/.cache/', train=is_train, download=True)
         self.img_convert = transforms.Compose([
             transforms.PILToTensor(),
         ])
@@ -20,7 +20,7 @@ class MNIST(Dataset):
 class CIFAR10(Dataset):
     def __init__(self, is_train=True):
         super().__init__()
-        self.dataset = datasets.CIFAR10('./dataset/cifar10/', train=is_train, download=True)
+        self.dataset = datasets.CIFAR10('~/.cache/', train=is_train, download=True)
         self.img_convert = transforms.Compose([
             transforms.PILToTensor(),
         ])
