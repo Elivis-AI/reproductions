@@ -71,6 +71,7 @@ class VectorQuantizer(nn.Module):
 
         # reshape back to match original input shape
         z_q = z_q.permute(0, 3, 1, 2).contiguous()
-        indices = min_encoding_indices.view(z.size(0), -1)
+        indices = min_encoding_indices.view(z.size(0), -1) # （B, k）
+        codebook_usage = F.one_hot(min_encoding_indices.flatten(), num_classes=self.n_e).float().mean(0)
 
-        return z_q, indices, loss
+        return z_q, indices, loss, codebook_usage
