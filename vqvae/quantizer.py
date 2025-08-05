@@ -54,7 +54,12 @@ class VectorQuantizer(nn.Module):
         z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
 
         # compute loss for embedding
-        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+        #  The loss measures the error between the pre- and post-quantization values,
+        #  but it is especially important to note which terms affect the gradients:  
+        # - The first term encourages z to approach z_q, meaning the encoder's output z adapts to the codebook.  
+        # - The second term encourages z_q to adapt to z, meaning the vectors in the codebook update to better match the input data.  
+        # - beta controls the importance of the codebook update, commonly set within the range of 0.1 to 2.0.
+        loss = torch.mean((z_q.detach() - z) ** 2) + self.beta * \
             torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
