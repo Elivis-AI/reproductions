@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+from typing import Tuple
 
 class VectorQuantizer(nn.Module):
     """
@@ -27,7 +24,7 @@ class VectorQuantizer(nn.Module):
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
 
-    def forward(self, z: torch.Tensor):
+    def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, ...]:
         """
         Inputs the output of the encoder network z and maps it to a discrete 
         one-hot vector that is the index of the closest embedding vector e_j
@@ -35,12 +32,6 @@ class VectorQuantizer(nn.Module):
         z (continuous) -> z_q (discrete)
 
         z.shape = (batch, channel, height, width)
-
-        quantization pipeline:
-
-            1. get encoder input (B,C,H,W)
-            2. flatten input to (B*H*W,C)
-
         """
         # reshape z -> (batch, height, width, channel) and flatten
         z = z.permute(0, 2, 3, 1).contiguous()
@@ -75,3 +66,14 @@ class VectorQuantizer(nn.Module):
         codebook_usage = F.one_hot(min_encoding_indices.flatten(), num_classes=self.n_e).float().mean(0)
 
         return z_q, indices, loss, codebook_usage
+
+
+    def get_codebook_entry(self, indices: torch.Tensor, shape: Tuple) -> torch.Tensor:
+        """(B, k) -> (B, k, e_dim) -> shape: B, (C, H, W)""" 
+        embedding = F.normalize(self.embedding.weight, p=2, dim=-1) if self.norm_weight else self.embedding.weight
+        
+        C, H, W = shape
+        x_q = embedding[indices]
+        x_q = x_q.view(-1, H, W, C).permute(0, 3, 1, 2).contiguous()
+
+        return x_q
