@@ -59,7 +59,9 @@ class DiT(nn.Module):
         x = self.patch_emb(x) # (B, D, n, n), L = n*n
         x = x.flatten(2).transpose(1, 2) + self.patch_pos_emb
 
-        if self.training:
+        if labels is None:
+            labels = torch.full((x.size(0),), self.null_label, dtype=torch.long, device=x.device)
+        elif self.training:
             mask = torch.rand_like(labels, dtype=torch.float) < self.p_uncond
             labels = mask * self.null_label + ~mask * labels
         cond = self.label_emb(labels) + self.time_emb(time)
