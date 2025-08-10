@@ -8,12 +8,12 @@ from model import build_encoder_decoder
 
 
 class VAE(nn.Module):
-    def __init__(self, chs: List[int], input_size: int, latent_dim: int) -> None:
+    def __init__(self, in_size: int, in_ch: int, chs: List[int], latent_dim: int) -> None:
         super().__init__()
-
+        chs = [in_ch] + chs  # Ensure input channels are included
         self.latent_dim = latent_dim 
         self.last_dim = chs[-1]
-        self.last_size = input_size // (2 ** (len(chs) - 1))
+        self.last_size = in_size // (2 ** (len(chs) - 1))
 
         self.encoder, self.decoder = build_encoder_decoder(chs)
         # the output of encoder should be (B, last_dim, last_size, last_size)
@@ -62,7 +62,7 @@ class VAE(nn.Module):
 
 
 if __name__ == '__main__':
-    vae = VAE(chs=[3, 16, 32, 64], input_size=32, latent_dim=64)
+    vae = VAE(in_size=32, in_ch=3, chs=[16, 32, 64], latent_dim=64)
     x = torch.randn(1, 3, 32, 32)  # Example input tensor
     output, mu, log_var = vae(x)
     assert output.shape == x.shape, output.shape

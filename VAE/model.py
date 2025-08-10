@@ -44,7 +44,7 @@ class Decoder(nn.Module):
             # nn.BatchNorm2d(chs[-1]),
             # nn.LeakyReLU(),
             # nn.Conv2d(chs[-1], chs[-1], kernel_size=3, padding=1),
-            nn.Conv2d(chs[-1], chs[-1], kernel_size=1),
+            nn.Conv2d(chs[-1], chs[-1], kernel_size=3, stride=1, padding=1),
             nn.Sigmoid()
         )
     
