@@ -51,7 +51,12 @@ class YOLOv1(nn.Module):
         target: (B, n_grid, n_grid, dim)
         """
         obj_mask = target[..., [4]] # 每个块是否负责一个目标
-        
+
+        # 类别损失
+        # 原始yolov1论文用的mse，这里换成正常对分类任务作用的交叉熵(v2及以后采用)
+        # class_loss = F.mse_loss(pred_class_tensor, target_class_tensor, reduction='none').sum(-1, keepdim=True)
+        class_loss = F.binary_cross_entropy(pred[..., -self.n_classes:], target[..., -self.n_classes:], reduction='none').sum(-1, keepdim=True)
+
         # 前 B*5 个通道是 bbox 预测 x,y,w,h,c
         pred_bbox_tensors = pred[..., :-self.n_classes].view(-1, self.n_grid, self.n_grid, self.bbox_per_grid, 5)
         target_bbox_tensors = target[..., :-self.n_classes].view(-1, self.n_grid, self.n_grid, self.bbox_per_grid, 5)
@@ -73,13 +78,9 @@ class YOLOv1(nn.Module):
         center_loss = F.mse_loss(pred_max_bbox_tensor[..., :2], target_max_bbox_tensor[..., :2], reduction='none').sum(-1, keepdim=True)
         xywh_loss = wh_loss + center_loss
 
-        # 类别损失
-        # 原始yolov1论文用的mse，这里换成正常对分类任务作用的交叉熵(v2及以后采用)
-        # class_loss = F.mse_loss(pred_class_tensor, target_class_tensor, reduction='none').sum(-1, keepdim=True)
-        class_loss = F.binary_cross_entropy(pred_max_bbox_tensor[..., -self.n_classes:], target_max_bbox_tensor[..., -self.n_classes:], reduction='none').sum(-1, keepdim=True)
-
         # 置信度损失
-        c_obj_loss = F.mse_loss(max_iou, pred_max_bbox_tensor[..., [4]], reduction='none')
+        c_obj_loss = F.mse_loss(target_max_bbox_tensor[..., [4]], pred_max_bbox_tensor[..., [4]], reduction='none')
+        # c_obj_loss = F.mse_loss(max_iou, pred_max_bbox_tensor[..., [4]], reduction='none')
         c_noobj_loss = torch.sum(
             pred_bbox_tensors[..., [4]] ** 2,
             dim=-2, keepdim=False
