@@ -66,9 +66,9 @@ def train(args):
     print_num_parameters(model)
 
     model.train()
-    running_loss = 0.0
 
     for epoch in range(1, args.epochs + 1):
+        running_loss = 0.0
         for bx, by in train_loader:
             # forward
             bx, by = bx.to(device), by.to(device)

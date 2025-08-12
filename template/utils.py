@@ -75,7 +75,7 @@ def init_distributed_mode(args):
     ):  # Exclude interactive shells
         args.rank = int(os.environ["SLURM_PROCID"])
         args.gpu = args.rank % torch.cuda.device_count()
-    elif args.dist_on_itp:
+    elif hasattr(args, 'dist_on_itp') and args.dist_on_itp:
         args.rank = int(os.environ["OMPI_COMM_WORLD_RANK"])
         args.world_size = int(os.environ["OMPI_COMM_WORLD_SIZE"])
         args.gpu = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
