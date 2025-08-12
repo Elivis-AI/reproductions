@@ -1,3 +1,10 @@
+
+import os
+from datetime import timedelta
+
+import torch
+import torch.nn as nn
+
 class EMALoss():
     def __init__(self, alpha):
         super().__init__()
@@ -16,6 +23,12 @@ class EMALoss():
     def item(self):
         return self.loss
 
+def print_num_parameters(model: nn.Module):
+    print(f'参数量：{sum(p.numel() for p in model.parameters()) / 1e9:.3f} B')
+    
+def print_num_trainable_parameters(model: nn.Module):
+    print(f'可训练参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9:.3f} B')
+
 #################################################################################
 #                              distributed utils                                #
 #################################################################################
@@ -25,11 +38,6 @@ class EMALoss():
 #
 # This source code is licensed under the CC-by-NC license found in the
 # LICENSE file in the root directory of this source tree.
-
-import os
-from datetime import timedelta
-
-import torch
 import torch.distributed as dist
 
 
@@ -58,7 +66,16 @@ def is_main_process():
 
 
 def init_distributed_mode(args):
-    if args.dist_on_itp:
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ["WORLD_SIZE"])
+        args.gpu = int(os.environ["LOCAL_RANK"])
+    elif (
+        "SLURM_PROCID" in os.environ and os.environ["SLURM_JOB_NAME"] != "bash"
+    ):  # Exclude interactive shells
+        args.rank = int(os.environ["SLURM_PROCID"])
+        args.gpu = args.rank % torch.cuda.device_count()
+    elif args.dist_on_itp:
         args.rank = int(os.environ["OMPI_COMM_WORLD_RANK"])
         args.world_size = int(os.environ["OMPI_COMM_WORLD_SIZE"])
         args.gpu = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
@@ -70,15 +87,6 @@ def init_distributed_mode(args):
         os.environ["RANK"] = str(args.rank)
         os.environ["WORLD_SIZE"] = str(args.world_size)
         # ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
-    elif "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-        args.rank = int(os.environ["RANK"])
-        args.world_size = int(os.environ["WORLD_SIZE"])
-        args.gpu = int(os.environ["LOCAL_RANK"])
-    elif (
-        "SLURM_PROCID" in os.environ and os.environ["SLURM_JOB_NAME"] != "bash"
-    ):  # Exclude interactive shells
-        args.rank = int(os.environ["SLURM_PROCID"])
-        args.gpu = args.rank % torch.cuda.device_count()
     else:
         print("Not using distributed mode")
         args.distributed = False
