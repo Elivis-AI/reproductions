@@ -8,13 +8,23 @@ from typing import Any, Optional, Tuple, List, Generator
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from hf_config import LMConfig
-from utils import apply_rotary_emb, repeat_kv, precompute_pos_cis
+from hf_config import ModelConfig
+from rope import apply_rotary_emb, precompute_pos_cis
 
+def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """Faster implementation of torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
+    bs, slen, n_kv_heads, head_dim = x.shape
+    if n_rep == 1:
+        return x
+    return ( # 比torch.repeat_interleave更快
+        x[:, :, :, None, :]
+        .expand(bs, slen, n_kv_heads, n_rep, head_dim)
+        .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
+    )
 
 
 class Attention(nn.Module):
-    def __init__(self, args: LMConfig):
+    def __init__(self, args: ModelConfig):
         super().__init__()
         self.n_heads = args.n_heads
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -34,13 +44,13 @@ class Attention(nn.Module):
         self.register_buffer("mask", mask, persistent=False)
 
     def forward(
-            self,
-            x: torch.Tensor,
-            pos_cis: torch.Tensor,
-            past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            use_cache=False
-        ):
+        self,
+        x: torch.Tensor,
+        pos_cis: torch.Tensor,
+        past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        use_cache=False
+    ):
         
         B, L, _ = x.shape
         
@@ -49,9 +59,11 @@ class Attention(nn.Module):
         k = k.view(B, L, self.n_kv_heads, self.head_dim)
         v = v.view(B, L, self.n_kv_heads, self.head_dim)
 
+        # 和绝对位置编码不同的是
+        # 相对位置编码需要在每一层都添加编码
         q, k = apply_rotary_emb(q, k, pos_cis)
         
-        # kv_cache实现
+        # kv cache
         if past_key_value is not None:
             k = torch.cat([past_key_value[0], k], dim=1)
             v = torch.cat([past_key_value[1], v], dim=1)
@@ -63,6 +75,7 @@ class Attention(nn.Module):
 
         if self.flash and L != 1:
             # 官方版本内部已经实现了flash attention内核
+            # 受限于算子实现，要求序列长度L >= 2
             output = F.scaled_dot_product_attention(
                 q, k, v,
                 attn_mask=attention_mask,
@@ -71,7 +84,9 @@ class Attention(nn.Module):
             )
         else:
             scores = (q @ k.transpose(-2, -1)) / self.head_dim ** 0.5
-            scores += self.mask[:, :, :L, :L] * (~attention_mask)
+            mask = self.mask[:, :, :L, :L] if attention_mask is None \
+                else self.mask[:, :, :L, :L] * (~attention_mask)
+            scores += mask
             scores = F.softmax(scores.float(), dim=-1).type_as(q)
             scores = self.attn_dropout(scores)
             output = scores @ v
@@ -82,12 +97,8 @@ class Attention(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, config: LMConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
-        if config.hidden_dim is None:
-            hidden_dim = 4 * config.dim
-            hidden_dim = int(2 * hidden_dim / 3)
-            config.hidden_dim = config.multiple_of * ((hidden_dim + config.multiple_of - 1) // config.multiple_of)
         self.w1 = nn.Linear(config.dim, config.hidden_dim, bias=False)
         self.w2 = nn.Linear(config.hidden_dim, config.dim, bias=False)
         self.w3 = nn.Linear(config.dim, config.hidden_dim, bias=False)
@@ -108,7 +119,7 @@ class RMSNorm(torch.nn.Module):
 
 
 class GPTBlock(nn.Module):
-    def __init__(self, config: LMConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.n_heads = config.n_heads
         self.dim = config.dim
@@ -131,7 +142,8 @@ class GPTBlock(nn.Module):
             self.attention_norm(x),
             pos_cis,
             past_key_value=past_key_value,
-            use_cache=use_cache
+            use_cache=use_cache,
+            attention_mask=attention_mask
         )
         x = x + x_attn
         out = x + self.feed_forward(self.ffn_norm(x))
@@ -139,9 +151,10 @@ class GPTBlock(nn.Module):
     
 
 class MyGPT(PreTrainedModel):
-    config: LMConfig
+    config: ModelConfig
+    pos_cis: torch.Tensor
 
-    def __init__(self, config: LMConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__(config) # 务必传入config
         self.vocab_size = config.vocab_size
         self.n_layers = config.vocab_size, config.n_layers
@@ -161,22 +174,24 @@ class MyGPT(PreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         use_cache: bool = False,
-        **args
+        **kwargs
     ) -> CausalLMOutputWithPast:
         past_key_values = past_key_values or [None] * len(self.layers)
-        start_pos = args.get('start_pos', 0)
+        start_pos = kwargs.get('start_pos', 0)
         h = self.dropout(self.tok_embeddings(input_ids))
         pos_cis = self.pos_cis[start_pos:start_pos + input_ids.size(1)]
         past_kvs = []
         for i, layer in enumerate(self.layers):
             h, past_kv = layer(
-                h, pos_cis,
+                h, 
+                pos_cis = pos_cis,
                 past_key_value=past_key_values[i],
-                use_cache=use_cache
+                use_cache=use_cache,
+                attention_mask=attention_mask
             )
             past_kvs.append(past_kv)
         logits = self.output(self.norm(h))
@@ -197,24 +212,35 @@ class MyGPT(PreTrainedModel):
     def stream(
         self, 
         input_ids: torch.Tensor, 
-        eos_token_id: int = 2, 
         max_new_tokens: int = 1024, 
         temperature: float = 0.75, 
         top_p: float = 0.90,
-        rp: float = 1., 
+        repeat_penalty: float = 1., 
         use_cache: bool = True, 
         pad_token_id: int = 0, 
-        **args
+        eos_token_id: int = 2, 
+        **kwargs
     ) -> Generator[torch.Tensor]:
         start, first_seq, past_kvs = input_ids.shape[1], True, None
         while input_ids.shape[1] < max_new_tokens - 1:
             if first_seq or not use_cache:
-                out, first_seq = self(input_ids, past_key_values=past_kvs, use_cache=use_cache, **args), False
+                out = self(
+                    input_ids, 
+                    past_key_values=past_kvs, 
+                    use_cache=use_cache,
+                    **kwargs
+                )
+                first_seq = False
             else:
-                out = self(input_ids[:, -1:], past_key_values=past_kvs, use_cache=use_cache,
-                           start_pos=input_ids.shape[1] - 1, **args)
-            logits, past_kvs = out.logits[:, -1, :], out.past_key_values
-            logits[:, list(set(input_ids.tolist()[0]))] /= rp
+                out = self(
+                    input_ids[..., -1], 
+                    past_key_values=past_kvs, 
+                    use_cache=use_cache,
+                    start_pos=input_ids.shape[1] - 1,
+                    **kwargs
+                )
+            logits, past_kvs = out.logits[..., -1, :], out.past_key_values
+            logits[:, list(set(input_ids.tolist()[0]))] /= repeat_penalty
             logits /= (temperature + 1e-9)
             if top_p is not None and top_p < 1.0:
                 sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
@@ -235,19 +261,19 @@ class MyGPT(PreTrainedModel):
     def generate(
         self, 
         input_ids: torch.Tensor, 
-        eos_token_id: int = 2, 
         max_new_tokens: int = 1024, 
         temperature: float = 0.75, 
         top_p: float = 0.90,
-        rp: float = 1., 
+        repeat_penalty: float = 1., 
         use_cache: bool = True, 
         pad_token_id: int = 0, 
-        **args
+        eos_token_id: int = 2, 
+        **kwargs
     ) -> torch.Tensor:
         generated = []
         for i in range(input_ids.size(0)):
             non_pad = input_ids[i][input_ids[i] != pad_token_id].unsqueeze(0)
-            out = self.stream(non_pad, eos_token_id, max_new_tokens, temperature, top_p, rp, use_cache, **args)
+            out = self.stream(non_pad, eos_token_id, max_new_tokens, temperature, top_p, repeat_penalty, use_cache, **kwargs)
             tokens_list = [tokens[:, -1:] for tokens in out]
             gen = torch.cat(tokens_list, dim=-1) if tokens_list else non_pad
             full_sequence = torch.cat([non_pad, gen], dim=-1)
