@@ -103,11 +103,11 @@ def train_tokenizer_from_template(args: TokeizerArguments):
     # 加载预训练的tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.template, trust_remote_code=True)
 
-    tokenizer.train_new_from_iterator()
+    # 读取文本数据
+    iterator = load_data(args.dataset_path)
 
-    # 获取实际词汇表长度（包括特殊符号）
-    actual_vocab_size = len(tokenizer)
-    print('tokenizer实际词表长度：', actual_vocab_size)
+    # 继承pretrained tokenizer的配置
+    tokenizer.train_new_from_iterator(iterator, vocab_size=args.vocab_size)
 
     # 保存tokenizer
     tokenizer.save_pretrained(args.save_path)
