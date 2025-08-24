@@ -40,7 +40,7 @@ CHAT_TEMPLATE = (
 @dataclass
 class TokeizerArguments:
     dataset: str
-    max_len: str = 512
+    max_len: str = 8192
     vocab_size: int = 6400
     save_path: str = './weights'
     template: str = None
@@ -94,6 +94,7 @@ def train_tokenizer(args: TokeizerArguments):
     pretrained_tokenizer.unk_token = "<|endoftext|>"
     pretrained_tokenizer.bos_token = "<|im_start|>"
     pretrained_tokenizer.eos_token = "<|im_end|>"
+    pretrained_tokenizer.model_max_length = args.max_len
 
     pretrained_tokenizer.chat_template = CHAT_TEMPLATE
     pretrained_tokenizer.save_pretrained(args.save_path)
@@ -144,7 +145,7 @@ def eval_tokenizer(args: TokeizerArguments):
 
 if __name__ == '__main__':
     # python hf_train_tokenizer.py --dataset ./Zhihu-KOL
-    
+
     parser = HfArgumentParser(TokeizerArguments)
     args = parser.parse_args_into_dataclasses()[0] # always return tuple
 
