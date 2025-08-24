@@ -14,6 +14,7 @@ from tokenizers import (
 )
 
 from dataclasses import dataclass
+from typing import Iterator
 
 import random
 random.seed(42)
@@ -38,17 +39,17 @@ CHAT_TEMPLATE = (
 
 @dataclass
 class TokeizerArguments:
-    dataset_path: str
+    dataset: str
     max_len: str = 512
     vocab_size: int = 6400
     save_path: str = './weights'
     template: str = None
 
 
-def load_data(dataset_path: str):
-    texts = load_dataset("json", data_files=dataset_path, split='train')
+def load_data(dataset: str) -> Iterator[str]:
+    texts = load_dataset(dataset, split='train', streaming=True)
     for item in texts:
-        yield item['text']
+        yield item['INSTRUCTION']  + '\n\n' + item['RESPONSE']
 
 
 def train_tokenizer(args: TokeizerArguments):
@@ -77,7 +78,7 @@ def train_tokenizer(args: TokeizerArguments):
     )
 
     # 读取文本数据
-    iterator = load_data(args.dataset_path)
+    iterator = load_data(args.dataset)
 
     # 训练tokenizer
     tokenizer.train_from_iterator(iterator, trainer=trainer)
@@ -104,7 +105,7 @@ def train_tokenizer_from_template(args: TokeizerArguments):
     tokenizer = AutoTokenizer.from_pretrained(args.template, trust_remote_code=True)
 
     # 读取文本数据
-    iterator = load_data(args.dataset_path)
+    iterator = load_data(args.dataset)
 
     # 继承pretrained tokenizer的配置
     tokenizer.train_new_from_iterator(iterator, vocab_size=args.vocab_size)
@@ -142,6 +143,8 @@ def eval_tokenizer(args: TokeizerArguments):
 
 
 if __name__ == '__main__':
+    # python hf_train_tokenizer.py --dataset ./Zhihu-KOL
+    
     parser = HfArgumentParser(TokeizerArguments)
     args = parser.parse_args_into_dataclasses()[0] # always return tuple
 
