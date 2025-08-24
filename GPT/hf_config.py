@@ -14,6 +14,7 @@ class ModelConfig(PretrainedConfig):
             hidden_dim: int = None,
             norm_eps: float = 1e-5,
             max_seq_len: int = 8192,
+            padding_idx: int = None,
             rope_theta: int = 1e6,
             dropout: float = 0.0,
             flash_attn: bool = True,
@@ -27,6 +28,7 @@ class ModelConfig(PretrainedConfig):
         self.hidden_dim = hidden_dim or self._default_ffn_dim(dim)
         self.norm_eps = norm_eps
         self.max_seq_len = max_seq_len
+        self.padding_idx = padding_idx
         self.rope_theta = rope_theta
         self.dropout = dropout
         self.flash_attn = flash_attn

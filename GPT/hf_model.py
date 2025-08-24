@@ -1,14 +1,14 @@
 # Ref: https://github.com/meta-llama/llama/blob/main/llama/model.py
+# Ref: https://github.com/huggingface/transformers/blob/28ca27cb2b78dae855b6e9ce1461fed18a9a9594/src/transformers/models/llama/modeling_llama.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
-from typing import Any, Optional, Tuple, List, Generator
+from typing import Any, Optional, Tuple, List
 
-from transformers import PreTrainedModel
-from transformers.modeling_outputs import CausalLMOutputWithPast
-
+from transformers import PreTrainedModel, GenerationMixin
+from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from hf_config import ModelConfig
+
 from rope import apply_rotary_emb, precompute_pos_cis
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -78,15 +78,13 @@ class Attention(nn.Module):
             # 受限于算子实现，要求序列长度L >= 2
             output = F.scaled_dot_product_attention(
                 q, k, v,
-                attn_mask=attention_mask,
                 dropout_p=self.dropout if self.training else 0.0,
                 is_causal=True
             )
         else:
+            # eager attention
             scores = (q @ k.transpose(-2, -1)) / self.head_dim ** 0.5
-            mask = self.mask[:, :, :L, :L] if attention_mask is None \
-                else self.mask[:, :, :L, :L] * (~attention_mask)
-            scores += mask
+            scores += self.mask[:, :, :L, :L]
             scores = F.softmax(scores.float(), dim=-1).type_as(q)
             scores = self.attn_dropout(scores)
             output = scores @ v
@@ -114,7 +112,7 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return self.weight * (x.float() * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)).type_as(x)
 
 
@@ -134,7 +132,6 @@ class GPTBlock(nn.Module):
         self,
         x: torch.Tensor,
         pos_cis: torch.Tensor, 
-        attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[torch.Tensor] = None,
         use_cache: bool = False
     ):
@@ -143,27 +140,23 @@ class GPTBlock(nn.Module):
             pos_cis,
             past_key_value=past_key_value,
             use_cache=use_cache,
-            attention_mask=attention_mask
         )
         x = x + x_attn
         out = x + self.feed_forward(self.ffn_norm(x))
         return out, past_kv
     
 
-class MyGPT(PreTrainedModel):
+class MyGPTModel(PreTrainedModel):
     config: ModelConfig
     pos_cis: torch.Tensor
 
     def __init__(self, config: ModelConfig):
         super().__init__(config) # 务必传入config
-        self.vocab_size = config.vocab_size
-        self.n_layers = config.vocab_size, config.n_layers
-        
+
         self.dropout = nn.Dropout(config.dropout)
-        self.layers = nn.ModuleList([GPTBlock(config) for _ in range(self.n_layers)])
+        self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
-        self.output = nn.Linear(config.dim, config.vocab_size, bias=False)
-        self.tok_embeddings = nn.Embedding(config.vocab_size, config.dim)
+        self.tok_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.padding_idx)
 
         self.register_buffer(
             "pos_cis",
@@ -171,15 +164,18 @@ class MyGPT(PreTrainedModel):
             persistent=False
         )
 
+        # 确保模型初始化完成后，权重被合理初始化；
+        # 确保 tied weights（共享权重）被建立；
+        # 保证 config 与模型参数一致性。
+        self.post_init()
+
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
         past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
         use_cache: bool = False,
         **kwargs
-    ) -> CausalLMOutputWithPast:
+    ) -> BaseModelOutputWithPast:
         past_key_values = past_key_values or [None] * len(self.layers)
         start_pos = kwargs.get('start_pos', 0)
         h = self.dropout(self.tok_embeddings(input_ids))
@@ -191,10 +187,42 @@ class MyGPT(PreTrainedModel):
                 pos_cis = pos_cis,
                 past_key_value=past_key_values[i],
                 use_cache=use_cache,
-                attention_mask=attention_mask
             )
             past_kvs.append(past_kv)
-        logits = self.output(self.norm(h))
+        hidden_states = self.norm(h)
+
+        return BaseModelOutputWithPast(
+            last_hidden_state=hidden_states,
+            past_key_values=past_kvs,
+        )
+
+
+class MyGPTForCausalLM(MyGPTModel, GenerationMixin):
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        self.model = MyGPTModel(config)
+        self.vocab_size = config.vocab_size
+        self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
+        self.loss_function = nn.CrossEntropyLoss(ignore_index=config.padding_idx, reduction='mean')
+
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        labels: Optional[torch.Tensor] = None,
+        use_cache: bool = False,
+        **kwargs
+    ) -> CausalLMOutputWithPast:
+        
+        outputs: BaseModelOutputWithPast = self.model(
+            input_ids=input_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            **kwargs,
+        )
+        logits = self.lm_head(outputs.last_hidden_state)
         
         loss = None
         if labels is not None:
@@ -203,86 +231,35 @@ class MyGPT(PreTrainedModel):
         return CausalLMOutputWithPast(
             logits=logits,
             loss=loss,
-            hidden_states=h,
-            past_key_values=past_kvs,
+            past_key_values=outputs.past_key_values,
         )
 
-    # 流式生成
-    @torch.inference_mode()
-    def stream(
-        self, 
-        input_ids: torch.Tensor, 
-        max_new_tokens: int = 1024, 
-        temperature: float = 0.75, 
-        top_p: float = 0.90,
-        repeat_penalty: float = 1., 
-        use_cache: bool = True, 
-        pad_token_id: int = 0, 
-        eos_token_id: int = 2, 
-        **kwargs
-    ) -> Generator[torch.Tensor]:
-        start, first_seq, past_kvs = input_ids.shape[1], True, None
-        while input_ids.shape[1] < max_new_tokens - 1:
-            if first_seq or not use_cache:
-                out = self(
-                    input_ids, 
-                    past_key_values=past_kvs, 
-                    use_cache=use_cache,
-                    **kwargs
-                )
-                first_seq = False
-            else:
-                out = self(
-                    input_ids[..., -1], 
-                    past_key_values=past_kvs, 
-                    use_cache=use_cache,
-                    start_pos=input_ids.shape[1] - 1,
-                    **kwargs
-                )
-            logits, past_kvs = out.logits[..., -1, :], out.past_key_values
-            logits[:, list(set(input_ids.tolist()[0]))] /= repeat_penalty
-            logits /= (temperature + 1e-9)
-            if top_p is not None and top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
-                sorted_probs = F.softmax(sorted_logits, dim=-1)
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
-                sorted_indices_to_remove[:, 0] = False
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                logits[indices_to_remove] = -float('Inf')
-            input_ids_next = torch.multinomial(F.softmax(logits, dim=-1), num_samples=1)
-            input_ids = torch.cat((input_ids, input_ids_next), dim=1)
-            yield input_ids[:, start:]
-            if input_ids_next.item() == eos_token_id:
-                break
 
-    @torch.inference_mode()
-    def generate(
-        self, 
-        input_ids: torch.Tensor, 
-        max_new_tokens: int = 1024, 
-        temperature: float = 0.75, 
-        top_p: float = 0.90,
-        repeat_penalty: float = 1., 
-        use_cache: bool = True, 
-        pad_token_id: int = 0, 
-        eos_token_id: int = 2, 
-        **kwargs
-    ) -> torch.Tensor:
-        generated = []
-        for i in range(input_ids.size(0)):
-            non_pad = input_ids[i][input_ids[i] != pad_token_id].unsqueeze(0)
-            out = self.stream(non_pad, eos_token_id, max_new_tokens, temperature, top_p, repeat_penalty, use_cache, **kwargs)
-            tokens_list = [tokens[:, -1:] for tokens in out]
-            gen = torch.cat(tokens_list, dim=-1) if tokens_list else non_pad
-            full_sequence = torch.cat([non_pad, gen], dim=-1)
-            generated.append(full_sequence)
-        max_length = max(seq.size(1) for seq in generated)
-        generated = [
-            torch.cat(
-                [seq, torch.full((1, max_length - seq.size(1)), pad_token_id, dtype=seq.dtype, device=seq.device)],
-                dim=-1)
-            for seq in generated
-        ]
-        return torch.cat(generated, dim=0)
+if __name__ == "__main__":
+    # Example usage
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained('./weights')
+    config = ModelConfig(
+        dim=64,
+        n_layers=2,
+        n_heads=4,
+        n_kv_heads=4,
+        vocab_size=6400,
+        hidden_dim=None,
+        norm_eps=1e-5,
+        max_seq_len=8192,
+        rope_theta=1e6,
+        dropout=0.1,
+        flash_attn=True
+    )
+    config.padding_idx = tokenizer.pad_token_id
+    tokenizer.model_max_length = config.max_seq_len
+    model = MyGPTForCausalLM(config)
+
+
+    text = "Hello, how are you?"
+    input_ids: torch.Tensor = tokenizer.encode(text, return_tensors="pt")
+    print(input_ids.shape)
+    print(tokenizer.decode(input_ids[0]))
+    outputs = model(input_ids)
+    print(outputs)
