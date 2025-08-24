@@ -9,7 +9,7 @@ class ModelConfig(PretrainedConfig):
             dim: int = 512,
             n_layers: int = 8,
             n_heads: int = 8,
-            n_kv_heads: int = 2,
+            n_kv_heads: int = 4,
             vocab_size: int = 6400,
             hidden_dim: int = None,
             norm_eps: float = 1e-5,

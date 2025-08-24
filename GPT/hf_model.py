@@ -34,7 +34,9 @@ class Attention(nn.Module):
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention') and args.flash_attn
 
         self.head_dim = args.dim // args.n_heads
-        self.w_qkv = nn.Linear(args.dim, args.dim * 3, bias=False)
+        self.w_q = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
+        self.w_k = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+        self.w_v = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
         self.w_out = nn.Linear(args.dim, args.dim, bias=False)
         self.attn_dropout = nn.Dropout(args.dropout)
         self.resid_dropout = nn.Dropout(args.dropout)
@@ -48,16 +50,14 @@ class Attention(nn.Module):
         x: torch.Tensor,
         pos_cis: torch.Tensor,
         past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
         use_cache=False
     ):
         
         B, L, _ = x.shape
         
-        q, k, v = self.w_qkv(x).chunk(3, dim=-1)
-        q = q.view(B, L, self.n_heads, self.head_dim)
-        k = k.view(B, L, self.n_kv_heads, self.head_dim)
-        v = v.view(B, L, self.n_kv_heads, self.head_dim)
+        q = self.w_q(x).view(B, L, self.n_heads, self.head_dim)
+        k = self.w_k(x).view(B, L, self.n_kv_heads, self.head_dim)
+        v = self.w_v(x).view(B, L, self.n_kv_heads, self.head_dim)
 
         # 和绝对位置编码不同的是
         # 相对位置编码需要在每一层都添加编码
@@ -222,11 +222,13 @@ class MyGPTForCausalLM(MyGPTModel, GenerationMixin):
             use_cache=use_cache,
             **kwargs,
         )
-        logits = self.lm_head(outputs.last_hidden_state)
+        logits: torch.Tensor = self.lm_head(outputs.last_hidden_state)
         
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
+            loss = self.loss_function(shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1))
 
         return CausalLMOutputWithPast(
             logits=logits,
