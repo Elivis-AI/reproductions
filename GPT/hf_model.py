@@ -146,8 +146,7 @@ class GPTBlock(nn.Module):
         return out, past_kv
     
 
-class MyGPTModel(PreTrainedModel):
-    config_class = ModelConfig
+class MyGPTModel(nn.Module):
     pos_cis: torch.Tensor
 
     def __init__(self, config: ModelConfig):
@@ -197,7 +196,9 @@ class MyGPTModel(PreTrainedModel):
         )
 
 
-class MyGPTForCausalLM(MyGPTModel, GenerationMixin):
+class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
+    config_class = ModelConfig
+    
     def __init__(self, config: ModelConfig):
         super().__init__(config)
         self.model = MyGPTModel(config)
