@@ -8,7 +8,6 @@ from transformers import (
     HfArgumentParser,
 )
 
-from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
 from dataset import MiniMindSFTDataset
 
@@ -19,7 +18,7 @@ warnings.filterwarnings('ignore')
 class MyTrainingArguments:
     # data params
     dataset_path: str
-    tokenizer: str
+    model_path: str
     max_seq_len: int
 
 
@@ -29,11 +28,8 @@ if __name__ == "__main__":
     # args: MyTrainingArguments = parser.parse_args_into_dataclasses()[0]
 
     # 初始化 tokenizer 和 model
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
-    tokenizer.model_max_length = args.max_seq_len
-    args.padding_idx = tokenizer.pad_token_id
-    model_config = ModelConfig(**vars(args))
-    model = MyGPTForCausalLM(model_config)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    model = MyGPTForCausalLM.from_pretrained(args.model_path)
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 
     # 数据准备
