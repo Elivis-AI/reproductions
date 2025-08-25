@@ -31,7 +31,9 @@ CHAT_TEMPLATE = (
     "{% if message['role'] == 'user' %}"
     "{{ '<|im_start|>user\\n' + content + '<|im_end|>\\n<|im_start|>assistant\\n' }}"
     "{% elif message['role'] == 'assistant' %}"
+    "{% generation %}"
     "{{ content + '<|im_end|>' + '\\n' }}"
+    "{% endgeneration %}"
     "{% endif %}"
     "{% endfor %}"
 )
