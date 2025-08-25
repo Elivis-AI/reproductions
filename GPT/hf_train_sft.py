@@ -10,7 +10,7 @@ from transformers import (
 
 from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
-from dataset import ZhiHuPretrainDataset
+from dataset import MiniMindSFTDataset
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -20,6 +20,7 @@ class MyTrainingArguments:
     # data params
     dataset_path: str
     tokenizer: str
+    max_seq_len: int
 
 
 if __name__ == "__main__":
@@ -36,7 +37,7 @@ if __name__ == "__main__":
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 
     # 数据准备
-    dataset = ZhiHuPretrainDataset(dataset=args.dataset_path, tokenizer=tokenizer)
+    dataset = MiniMindSFTDataset(dataset=args.dataset_path, tokenizer=tokenizer)
     collator = DataCollatorForSeq2Seq( # 动态padding
         tokenizer=tokenizer,
         padding=True,

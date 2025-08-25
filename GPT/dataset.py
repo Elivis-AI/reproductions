@@ -74,7 +74,7 @@ class SFTDataset(Dataset):
         input_ids = output.input_ids.squeeze()
         labels = input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, self.tokenizer.pad_token_id)
 
-        return {"input_ids": output.input_ids, "labels": labels}
+        return {"input_ids": input_ids, "labels": labels}
     
 
 class ZhiHuPretrainDataset(PretrainDataset):
