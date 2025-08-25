@@ -203,7 +203,7 @@ class MyGPTForCausalLM(MyGPTModel, GenerationMixin):
         self.model = MyGPTModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
-        self.loss_function = nn.CrossEntropyLoss(ignore_index=config.padding_idx, reduction='mean')
+        self.loss_function = nn.CrossEntropyLoss(reduction='mean')
 
         self.post_init()
 

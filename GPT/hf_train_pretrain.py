@@ -1,18 +1,16 @@
-import torch
-from dataclasses import dataclass
-from typing import List, Dict, Any
-
 from transformers import (
     AutoTokenizer,
-    DataCollatorWithPadding,
+    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
     HfArgumentParser,
 )
 
+from dataclasses import dataclass
+
 from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
-from dataset import ZhiHuPretrainDataset
+from dataset import MiniMindPretrainDataset
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -36,20 +34,6 @@ class MyTrainingArguments:
     flash_attn: bool = True
 
 
-class MyDataCollatorWithPadding(DataCollatorWithPadding):
-    def __call__(self, features: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        batch = self.tokenizer.pad(
-            features,
-            padding=self.padding,
-            max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            return_tensors=self.return_tensors,
-        )
-
-        batch["labels"] = batch["input_ids"].detach()
-        return batch
-
-
 if __name__ == "__main__":
     parser = HfArgumentParser((MyTrainingArguments, TrainingArguments))
     args, trainer_args = parser.parse_args_into_dataclasses()
@@ -64,11 +48,10 @@ if __name__ == "__main__":
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 
     # 数据准备
-    dataset = ZhiHuPretrainDataset(dataset=args.dataset_path, tokenizer=tokenizer)
-    collator = MyDataCollatorWithPadding( # 动态padding
+    dataset = MiniMindPretrainDataset(dataset=args.dataset_path, tokenizer=tokenizer)
+    collator = DataCollatorForLanguageModeling( # 动态padding
         tokenizer=tokenizer,
-        padding=True,
-        max_length=tokenizer.model_max_length
+        mlm=False,
     )
 
     trainer = Trainer(
