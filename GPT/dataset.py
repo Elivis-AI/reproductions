@@ -72,7 +72,7 @@ class SFTDataset(Dataset):
         )
 
         input_ids = output.input_ids.squeeze()
-        labels = input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, self.tokenizer.pad_token_id)
+        labels = input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, -100) # -100是default ignore_index
 
         return {"input_ids": input_ids, "labels": labels}
     
