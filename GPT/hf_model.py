@@ -150,7 +150,7 @@ class MyGPTModel(nn.Module):
     pos_cis: torch.Tensor
 
     def __init__(self, config: ModelConfig):
-        super().__init__(config) # 务必传入config
+        super().__init__()
 
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
@@ -162,11 +162,6 @@ class MyGPTModel(nn.Module):
             precompute_pos_cis(dim=config.dim // config.n_heads, theta=config.rope_theta),
             persistent=False
         )
-
-        # 确保模型初始化完成后，权重被合理初始化；
-        # 确保 tied weights（共享权重）被建立；
-        # 保证 config 与模型参数一致性。
-        self.post_init()
 
     def forward(
         self,
@@ -200,12 +195,15 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = ModelConfig
     
     def __init__(self, config: ModelConfig):
-        super().__init__(config)
+        super().__init__(config) # 务必传入config
         self.model = MyGPTModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
         self.loss_function = nn.CrossEntropyLoss(reduction='mean')
 
+        # 确保模型初始化完成后，权重被合理初始化；
+        # 确保 tied weights（共享权重）被建立；
+        # 保证 config 与模型参数一致性。
         self.post_init()
 
     def forward(
