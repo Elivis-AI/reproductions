@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import List, Dict, Any
 
 from datasets import load_dataset
-# from datasets import Dataset as HFDataset
 from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
@@ -15,6 +14,9 @@ from transformers import (
 
 from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
+
+import warnings
+warnings.filterwarnings('ignore')
 
 @dataclass
 class MyTrainingArguments:
