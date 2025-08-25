@@ -147,7 +147,7 @@ class GPTBlock(nn.Module):
     
 
 class MyGPTModel(PreTrainedModel):
-    config: ModelConfig
+    config_class = ModelConfig
     pos_cis: torch.Tensor
 
     def __init__(self, config: ModelConfig):
@@ -235,6 +235,12 @@ class MyGPTForCausalLM(MyGPTModel, GenerationMixin):
             loss=loss,
             past_key_values=outputs.past_key_values,
         )
+
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        # 使用GenerationMixin的时候
+        # forward函数必须显式接受input_ids, token_type_ids, attention_mask三个参数
+        # 否则必须额外定义prepare_inputs_for_generation来处理输入
+        return {"input_ids": input_ids, **kwargs}
 
 
 if __name__ == "__main__":
