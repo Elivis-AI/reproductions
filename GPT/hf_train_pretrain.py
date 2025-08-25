@@ -1,9 +1,7 @@
 import torch
-from torch.utils.data import Dataset
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
-from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
@@ -14,6 +12,7 @@ from transformers import (
 
 from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
+from dataset import ZhiHuPretrainDataset
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -36,30 +35,6 @@ class MyTrainingArguments:
     dropout: float = 0.0
     flash_attn: bool = True
 
-
-
-class ZhiHuPretrainDataset(Dataset):
-    def __init__(self, dataset: str, tokenizer: AutoTokenizer):
-        self.dataset = load_dataset(dataset, split='train')
-        self.tokenizer = tokenizer
-    
-    def __len__(self):
-        return len(self.dataset)
-    
-    def __getitem__(self, index):
-        item = self.dataset[index]
-        text = item['INSTRUCTION']  + '\n\n' + item['RESPONSE']
-        text = text + self.tokenizer.eos_token  # 添加<|endoftext|>
-        
-        # tokenize
-        input_ids: torch.Tensor = self.tokenizer.encode(
-            text,
-            return_tensors="pt",    
-            truncation=True,
-            max_length=self.tokenizer.model_max_length,
-        )
-        
-        return {"input_ids": input_ids.squeeze(0)}
 
 class MyDataCollatorWithPadding(DataCollatorWithPadding):
     def __call__(self, features: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
