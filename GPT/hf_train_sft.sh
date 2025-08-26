@@ -3,7 +3,7 @@
 OUTPUT_DIR=./sft
 LOG_DIR=./logs
 WANDB_MODE="offline"
-# WANDB_MODE="online"
+# export WANDB_MODE="online"
 
 
 # 设置分布式参数
@@ -13,6 +13,8 @@ NODE_RANK=0     # 节点 rank
 MASTER_ADDR="localhost"
 MASTER_PORT=29500
 
+# export CUDA_VISIBLE_DEVICES=0,2,3,4,5,6,7
+
 torchrun \
   --nnodes=$NNODES \
   --nproc_per_node=$NPROC_PER_NODE \
@@ -20,17 +22,17 @@ torchrun \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   hf_train_sft.py \
-  --dataset_path "./dataset/sft_1024.jsonl" \
+  --dataset_path "./data/sft_1024.jsonl" \
   --model_path "./pretrain" \
   --output_dir $OUTPUT_DIR \
   --per_device_train_batch_size 32 \
-  --num_train_epochs 1 \
+  --num_train_epochs 5 \
   --max_seq_len 4096 \
   --lr_scheduler_type="cosine" \
   --warmup_ratio=0.0 \
   --eval_strategy "no" \
-  --save_strategy "steps" \
-  --save_steps 10000 \
+  --save_strategy "epoch" \
+  # --save_steps 10000 
   --logging_dir $LOG_DIR \
   --logging_steps 100 \
   --save_total_limit 2 \
