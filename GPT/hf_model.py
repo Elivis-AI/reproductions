@@ -12,7 +12,7 @@ from hf_config import ModelConfig
 from rope import apply_rotary_emb, precompute_pos_cis
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """Faster implementation of torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
+    """torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
     bs, slen, n_kv_heads, head_dim = x.shape
     if n_rep == 1:
         return x
@@ -49,6 +49,7 @@ class Attention(nn.Module):
         self,
         x: torch.Tensor,
         pos_cis: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache=False
     ):
@@ -73,24 +74,31 @@ class Attention(nn.Module):
         k = repeat_kv(k, self.n_rep).transpose(1, 2)
         v = repeat_kv(v, self.n_rep).transpose(1, 2)
 
+        if attention_mask is not None:
+            attention_mask = attention_mask.bool().view(B, 1, 1, -1).expand(B, self.n_heads, L, -1)
         if self.flash and L != 1:
             # 官方版本内部已经实现了flash attention内核
             # 受限于算子实现，要求序列长度L >= 2
             output = F.scaled_dot_product_attention(
                 q, k, v,
                 dropout_p=self.dropout if self.training else 0.0,
+                attn_mask=attention_mask,
                 is_causal=True
             )
         else:
+            mask: torch.Tensor = self.mask[:, :, :L, :L] # casual mask
+            if attention_mask is not None:
+                mask = mask.masked_fill(attention_mask == False, float("-inf"))
             # eager attention
-            scores = (q @ k.transpose(-2, -1)) / self.head_dim ** 0.5
-            scores += self.mask[:, :, :L, :L]
+            scores = q @ k.transpose(-2, -1) * torch.rsqrt(self.head_dim)
+            scores += mask
             scores = F.softmax(scores.float(), dim=-1).type_as(q)
             scores = self.attn_dropout(scores)
             output = scores @ v
 
         output = output.transpose(1, 2).reshape(B, L, -1)
-        output = self.resid_dropout(self.w_out(output))
+        output = self.w_out(output)
+        output = self.resid_dropout(output)
         return output, past_kv
 
 
@@ -122,8 +130,8 @@ class GPTBlock(nn.Module):
         self.n_heads = config.n_heads
         self.dim = config.dim
         self.head_dim = config.dim // config.n_heads
+        
         self.attention = Attention(config)
-
         self.attention_norm = RMSNorm(config.dim, eps=config.norm_eps)
         self.ffn_norm = RMSNorm(config.dim, eps=config.norm_eps)
         self.feed_forward = FeedForward(config)
@@ -132,12 +140,14 @@ class GPTBlock(nn.Module):
         self,
         x: torch.Tensor,
         pos_cis: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[torch.Tensor] = None,
         use_cache: bool = False
     ):
         x_attn, past_kv = self.attention(
-            self.attention_norm(x),
-            pos_cis,
+            x=self.attention_norm(x),
+            attention_mask=attention_mask,
+            pos_cis=pos_cis,
             past_key_value=past_key_value,
             use_cache=use_cache,
         )
@@ -151,7 +161,6 @@ class MyGPTModel(nn.Module):
 
     def __init__(self, config: ModelConfig):
         super().__init__()
-
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
@@ -165,7 +174,8 @@ class MyGPTModel(nn.Module):
 
     def forward(
         self,
-        input_ids: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         use_cache: bool = False,
         **kwargs
@@ -179,6 +189,7 @@ class MyGPTModel(nn.Module):
             h, past_kv = layer(
                 h, 
                 pos_cis = pos_cis,
+                attention_mask=attention_mask,
                 past_key_value=past_key_values[i],
                 use_cache=use_cache,
             )
@@ -192,7 +203,7 @@ class MyGPTModel(nn.Module):
 
 
 class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
-    config_class = ModelConfig
+    config_class = ModelConfig # 务必定义config_class
     
     def __init__(self, config: ModelConfig):
         super().__init__(config) # 务必传入config
@@ -208,7 +219,8 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
 
     def forward(
         self,
-        input_ids: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         labels: Optional[torch.Tensor] = None,
         use_cache: bool = False,
@@ -217,6 +229,7 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=input_ids,
+            attention_mask=attention_mask,
             past_key_values=past_key_values,
             use_cache=use_cache,
             **kwargs,
