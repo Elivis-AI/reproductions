@@ -164,7 +164,7 @@ class MyGPTModel(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
-        self.tok_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.padding_idx)
+        self.token_emb = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.padding_idx)
 
         self.register_buffer(
             "pos_cis",
@@ -182,7 +182,7 @@ class MyGPTModel(nn.Module):
     ) -> BaseModelOutputWithPast:
         past_key_values = past_key_values or [None] * len(self.layers)
         start_pos = kwargs.get('start_pos', 0)
-        h = self.dropout(self.tok_embeddings(input_ids))
+        h = self.dropout(self.token_emb(input_ids))
         pos_cis = self.pos_cis[start_pos:start_pos + input_ids.size(1)]
         past_kvs = []
         for i, layer in enumerate(self.layers):
@@ -211,6 +211,10 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
         self.loss_function = nn.CrossEntropyLoss(reduction='mean')
+
+        # 分类头和嵌入表权重共享
+        # https://arxiv.org/abs/1608.05859
+        self.model.token_emb.weight = self.lm_head.weight # 这一行的bug查了好久，lm_head权重共享很重要!!!
 
         # 确保模型初始化完成后，权重被合理初始化；
         # 确保 tied weights（共享权重）被建立；
@@ -248,11 +252,11 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
             past_key_values=outputs.past_key_values,
         )
 
-    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+    def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **kwargs):
         # 使用GenerationMixin的时候
         # forward函数必须显式接受input_ids, token_type_ids, attention_mask三个参数
         # 否则必须额外定义prepare_inputs_for_generation来处理输入
-        return {"input_ids": input_ids, **kwargs}
+        return {"input_ids": input_ids, "attention_mask": attention_mask, **kwargs}
 
 
 if __name__ == "__main__":
