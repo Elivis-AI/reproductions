@@ -90,7 +90,7 @@ class Attention(nn.Module):
             if attention_mask is not None:
                 mask = mask.masked_fill(attention_mask == False, float("-inf"))
             # eager attention
-            scores = q @ k.transpose(-2, -1) * torch.rsqrt(self.head_dim)
+            scores = q @ k.transpose(-2, -1) / self.head_dim ** 0.5
             scores += mask
             scores = F.softmax(scores.float(), dim=-1).type_as(q)
             scores = self.attn_dropout(scores)
