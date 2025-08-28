@@ -14,6 +14,26 @@ from dataset import MiniMindSFTDataset
 import warnings
 warnings.filterwarnings('ignore')
 
+# 在SFT这一步学会对话格式和<|im_start|><|im_end|>这两个对话控制符
+CHAT_TEMPLATE = (
+    "{% if messages[0]['role'] == 'system' %}"
+    "{% set system_message = messages[0]['content'] %}"
+    "{{ '<|im_start|>system\\n' + system_message + '<|im_end|>\\n' }}"
+    "{% else %}"
+    "{{ '<|im_start|>system\\nYou are a helpful assistant<|im_end|>\\n' }}"
+    "{% endif %}"
+    "{% for message in messages %}"
+    "{% set content = message['content'] %}"
+    "{% if message['role'] == 'user' %}"
+    "{{ '<|im_start|>user\\n' + content + '<|im_end|>\\n<|im_start|>assistant\\n' }}"
+    "{% elif message['role'] == 'assistant' %}"
+    "{% generation %}"    # for `DataCollatorForSeq2Seq` generate labels
+    "{{ content + '<|im_end|>' + '\\n' }}"
+    "{% endgeneration %}" # for `DataCollatorForSeq2Seq` generate labels
+    "{% endif %}"
+    "{% endfor %}"
+)
+
 @dataclass
 class MyTrainingArguments:
     # data params
@@ -29,6 +49,7 @@ if __name__ == "__main__":
 
     # 初始化 tokenizer 和 model
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    tokenizer.chat_template = CHAT_TEMPLATE
     model = MyGPTForCausalLM.from_pretrained(args.model_path)
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 

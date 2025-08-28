@@ -19,30 +19,11 @@ from typing import Iterator
 import random
 random.seed(42)
 
-CHAT_TEMPLATE = (
-    "{% if messages[0]['role'] == 'system' %}"
-    "{% set system_message = messages[0]['content'] %}"
-    "{{ '<|im_start|>system\\n' + system_message + '<|im_end|>\\n' }}"
-    "{% else %}"
-    "{{ '<|im_start|>system\\nYou are a helpful assistant<|im_end|>\\n' }}"
-    "{% endif %}"
-    "{% for message in messages %}"
-    "{% set content = message['content'] %}"
-    "{% if message['role'] == 'user' %}"
-    "{{ '<|im_start|>user\\n' + content + '<|im_end|>\\n<|im_start|>assistant\\n' }}"
-    "{% elif message['role'] == 'assistant' %}"
-    "{% generation %}"
-    "{{ content + '<|im_end|>' + '\\n' }}"
-    "{% endgeneration %}"
-    "{% endif %}"
-    "{% endfor %}"
-)
-
 
 @dataclass
 class TokeizerArguments:
     dataset: str
-    max_len: str = 8192
+    max_len: str = 65535
     vocab_size: int = 6400
     save_path: str = './weights'
     template: str = None
@@ -98,7 +79,6 @@ def train_tokenizer(args: TokeizerArguments):
     pretrained_tokenizer.eos_token = "<|im_end|>"
     pretrained_tokenizer.model_max_length = args.max_len
 
-    pretrained_tokenizer.chat_template = CHAT_TEMPLATE
     pretrained_tokenizer.save_pretrained(args.save_path)
     print("Tokenizer training completed and saved.")
 
@@ -120,33 +100,23 @@ def train_tokenizer_from_template(args: TokeizerArguments):
 
 def eval_tokenizer(args: TokeizerArguments):
     # 加载预训练的tokenizer
+    text = "Hello!<|im_start|>我是一个人工智能对话助手，<|im_end|>很高兴为您服务。<|endoftext|>"
     tokenizer = AutoTokenizer.from_pretrained(args.save_path)
+    print(f"测试文本:{text}")
 
-    messages = [
-        {"role": "system", "content": "你是一个优秀的聊天机器人，总是给我正确的回应！"},
-        {"role": "user", "content": '你来自哪里？'},
-        {"role": "assistant", "content": '我来自地球'}
-    ]
-    new_prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False
-    )
-    print(new_prompt)
+    output = tokenizer(text)
+    print(output)
 
-    # 获取实际词汇表长度（包括特殊符号）
-    actual_vocab_size = len(tokenizer)
-    print('tokenizer实际词表长度：', actual_vocab_size)
+    response = tokenizer.decode(output.input_ids, skip_special_tokens=False)
+    print("解码结果:", response)
 
-    model_inputs = tokenizer(new_prompt)
-    print('encoder长度：', len(model_inputs['input_ids']))
-
-    input_ids = model_inputs['input_ids']
-    response = tokenizer.decode(input_ids, skip_special_tokens=False)
-    print('decoder和原始文本是否一致：', response == new_prompt)
+    response = tokenizer.decode(output.input_ids, skip_special_tokens=True)
+    print("跳过特殊符号:", response)
 
 
 if __name__ == '__main__':
-    # python hf_train_tokenizer.py --dataset ./Zhihu-KOL
+    # 首先确定数据集格式，修改load_data函数
+    # python hf_train_tokenizer.py --dataset ...
 
     parser = HfArgumentParser(TokeizerArguments)
     args = parser.parse_args_into_dataclasses()[0] # always return tuple
