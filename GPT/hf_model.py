@@ -222,7 +222,6 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         self.model = MyGPTModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
-        self.loss_function = nn.CrossEntropyLoss(reduction='mean')
 
         # 分类头和嵌入表权重共享
         # https://arxiv.org/abs/1608.05859
@@ -255,7 +254,7 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         if labels is not None:
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
-            loss = self.loss_function(shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1))
+            loss = F.cross_entropy(shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1), reduction='mean')
         else:
             loss = None
 
