@@ -9,7 +9,7 @@ from transformers import PreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from hf_config import ModelConfig
 
-from rope import apply_rotary_emb, precompute_pos_cis
+from rope import RotaryEmbedding, apply_rotary_pos_emb
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     """torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
@@ -48,7 +48,7 @@ class Attention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        pos_cis: torch.Tensor,
+        position_embeddings: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache=False
@@ -62,7 +62,8 @@ class Attention(nn.Module):
 
         # 和绝对位置编码不同的是
         # 相对位置编码需要在每一层都添加编码
-        q, k = apply_rotary_emb(q, k, pos_cis)
+        cos, sin = position_embeddings
+        q, k = apply_rotary_pos_emb(q, k, cos, sin)
         
         # kv cache
         if past_key_value is not None:
@@ -139,7 +140,7 @@ class GPTBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        pos_cis: torch.Tensor, 
+        position_embeddings: torch.Tensor, 
         attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[torch.Tensor] = None,
         use_cache: bool = False
@@ -147,7 +148,7 @@ class GPTBlock(nn.Module):
         x_attn, past_kv = self.attention(
             x=self.attention_norm(x),
             attention_mask=attention_mask,
-            pos_cis=pos_cis,
+            position_embeddings=position_embeddings,
             past_key_value=past_key_value,
             use_cache=use_cache,
         )
@@ -157,7 +158,6 @@ class GPTBlock(nn.Module):
     
 
 class MyGPTModel(nn.Module):
-    pos_cis: torch.Tensor
 
     def __init__(self, config: ModelConfig):
         super().__init__()
@@ -165,39 +165,51 @@ class MyGPTModel(nn.Module):
         self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
         self.token_emb = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.padding_idx)
-
-        self.register_buffer(
-            "pos_cis",
-            precompute_pos_cis(dim=config.dim // config.n_heads, theta=config.rope_theta),
-            persistent=False
-        )
+        self.rotary_emb = RotaryEmbedding(config.max_seq_len, config.dim // config.n_heads, base=config.rope_theta)
 
     def forward(
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        # KV cache related
         use_cache: bool = False,
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        cache_position: Optional[torch.Tensor] = None,
         **kwargs
     ) -> BaseModelOutputWithPast:
-        past_key_values = past_key_values or [None] * len(self.layers)
-        start_pos = kwargs.get('start_pos', 0)
-        h = self.dropout(self.token_emb(input_ids))
-        pos_cis = self.pos_cis[start_pos:start_pos + input_ids.size(1)]
+
+        inputs_embeds: torch.Tensor = self.token_emb(input_ids) # (B, L, D)
+
+        if past_key_values is None:
+            past_key_values = [None] * len(self.layers)
+
+        if cache_position is None:
+            past_seen_tokens = past_key_values[0][0].size(1) if past_key_values[0] is not None else 0
+            cache_position: torch.Tensor = torch.arange(
+                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+            )
+
+        if position_ids is None:
+            position_ids = cache_position.unsqueeze(0)
+        
+        position_embeddings = self.rotary_emb(inputs_embeds, position_ids)
+        x = self.dropout(inputs_embeds)
+
         past_kvs = []
         for i, layer in enumerate(self.layers):
-            h, past_kv = layer(
-                h, 
-                pos_cis = pos_cis,
+            x, past_kv = layer(
+                x, 
+                position_embeddings = position_embeddings,
                 attention_mask=attention_mask,
                 past_key_value=past_key_values[i],
                 use_cache=use_cache,
             )
             past_kvs.append(past_kv)
-        hidden_states = self.norm(h)
+        x = self.norm(x)
 
         return BaseModelOutputWithPast(
-            last_hidden_state=hidden_states,
+            last_hidden_state=x,
             past_key_values=past_kvs,
         )
 
@@ -240,23 +252,18 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         )
         logits: torch.Tensor = self.lm_head(outputs.last_hidden_state)
         
-        loss = None
         if labels is not None:
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
             loss = self.loss_function(shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1))
+        else:
+            loss = None
 
         return CausalLMOutputWithPast(
             logits=logits,
             loss=loss,
             past_key_values=outputs.past_key_values,
         )
-
-    def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **kwargs):
-        # 使用GenerationMixin的时候
-        # forward函数必须显式接受input_ids, token_type_ids, attention_mask三个参数
-        # 否则必须额外定义prepare_inputs_for_generation来处理输入
-        return {"input_ids": input_ids, "attention_mask": attention_mask, **kwargs}
 
 
 if __name__ == "__main__":

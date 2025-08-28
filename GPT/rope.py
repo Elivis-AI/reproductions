@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 
-# RoPE LLama implementation
+# RoPE LLama original implementation
 # Ref: https://github.com/meta-llama/llama/blob/main/llama/model.py
 
 def precompute_pos_cis(dim: int, end: int = int(32 * 1024), theta: float = 1e6):
@@ -30,9 +30,9 @@ def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor, pos_cis: torch.Tensor) 
 
 
 
-# RoPE Huggingface implementation
+# RoPE LLaMA Huggingface implementation
 # Ref: https://github.com/huggingface/transformers/blob/v4.53.3/src/transformers/models/llama/modeling_llama.py#L71
-class LlamaRotaryEmbedding(nn.Module):
+class RotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor
     
     def __init__(self, max_len: int, dim: int, base: float = 10000.0):
@@ -48,7 +48,7 @@ class LlamaRotaryEmbedding(nn.Module):
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
         position_ids_expanded = position_ids[:, None, :].float()
 
-        device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
+        device_type = x.device.type if (isinstance(x.device.type, str) and x.device.type != "mps") else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):  # Force float32
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
@@ -63,7 +63,15 @@ def rotate_half(x: torch.Tensor):
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, position_ids=None, unsqueeze_dim=1):
+def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, unsqueeze_dim=2):
+    """
+    The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
+    sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
+    that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
+    k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
+    cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
+    the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
+    """
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
     q_embed = (q * cos) + (rotate_half(q) * sin)
