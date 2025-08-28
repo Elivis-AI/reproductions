@@ -223,9 +223,9 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
 
-        # 分类头和嵌入表权重共享
+        # 分类头和嵌入表权重共享，可以减少模型参数数量，提高训练和推理效率
         # https://arxiv.org/abs/1608.05859
-        self.model.token_emb.weight = self.lm_head.weight # 这一行的bug查了好久，lm_head权重共享很重要!!!
+        self.model.token_emb.weight = self.lm_head.weight
 
         # 确保模型初始化完成后，权重被合理初始化；
         # 确保 tied weights（共享权重）被建立；
