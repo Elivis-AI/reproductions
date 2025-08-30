@@ -12,3 +12,4 @@
 | 8 | [VAE](VAE) | [Auto-Encoding Variational Bayes](https://arxiv.org/abs/1312.6114) | 2025-08-06 |
 | 9 | [DiT](DiT) | [Scalable Diffusion Models with Transformers](https://arxiv.org/abs/2212.09748) | 2025-08-09 |
 | 10 | [YOLOv1](YOLO) | [You Only Look Once:  Unified, Real-Time Object Detection](http://arxiv.org/abs/1506.02640) | 2025-08-11 |
+| 11 | [GPT](GPT) | [Improving Language Understanding by Generative Pre-Training](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) | 2025-08-20 |
