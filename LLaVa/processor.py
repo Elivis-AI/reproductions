@@ -11,11 +11,11 @@ from transformers import (
 class myLlavaProcessor(ProcessorMixin):
     r"""
     Args:
-        image_processor ([`LlavaImageProcessor`], *optional*):
+        image_processor ([`CLIPImageProcessor`]):
             The image processor is a required input.
-        tokenizer ([`LlamaTokenizerFast`], *optional*):
+        tokenizer ([`AutoTokenizer`]):
             The tokenizer is a required input.
-        patch_size (`int`, *optional*):
+        patch_size (`int`):
             Patch size from the vision tower.
         vision_feature_select_strategy (`str`, *optional*):
             The feature selection strategy used to select the vision feature from the vision backbone.
@@ -64,18 +64,15 @@ class myLlavaProcessor(ProcessorMixin):
         elif not isinstance(text, list) and not isinstance(text[0], str):
             raise TypeError("Invalid input text. Please provide a string, or a list of strings")
         
-        text = self.apply_chat_template(text)
-
         # try to expand inputs in processing if we have the necessary parts
         prompt_strings = text
         if image_inputs.get("pixel_values") is not None:
             # Replace the image token with the expanded image token sequence
             pixel_values = image_inputs["pixel_values"]
-            assert len(pixel_values) == 1, "TODO: support multi pics"
-            B, C, height, width = pixel_values
-            num_image_tokens = (height // self.patch_size) * (
-                width // self.patch_size
-            ) + self.num_additional_image_tokens
+            B, C, height, width = pixel_values.shape
+            assert B == 1, "TODO: support multi pics"
+
+            num_image_tokens = (height // self.patch_size) * (width // self.patch_size) + self.num_additional_image_tokens
             if self.vision_feature_select_strategy == "default":
                 num_image_tokens -= 1
 

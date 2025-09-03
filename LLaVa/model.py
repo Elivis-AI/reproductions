@@ -25,7 +25,7 @@ class LLaVaConfig(PretrainedConfig):
     ):
         self.base_model = base_model
         self.clip_model = clip_model
-        self.image_token = "image" # 注意和数据集对应好
+        self.image_token = "<image>" # 注意和数据集对应好
         self.image_token_id = None
         super().__init__(**kwargs)
 
