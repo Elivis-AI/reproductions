@@ -1,7 +1,5 @@
 # https://github.com/huggingface/transformers/blob/514b3e81b77ab823d755eb4e3a34b78d1c067454/src/transformers/models/llava/image_processing_llava_fast.py
 """Fast Image processor class for LLaVa."""
-import torch
-import torch.nn.functional as F
 from transformers import (
     ProcessorMixin, 
     BatchFeature, 
@@ -79,27 +77,4 @@ class myLlavaProcessor(ProcessorMixin):
         text_inputs = self.tokenizer(prompt_strings, padding=padding_text, return_tensors=None)
 
         return BatchFeature(data={**text_inputs, **image_inputs}, tensor_type=return_tensors)
-
-
-def process_dataset(messages, images, processor: myLlavaProcessor):
-    output = processor.apply_chat_template(
-        messages,
-        tokenize=True,
-        padding=False,
-        return_dict=True,
-        return_tensors="pt",
-        return_assistant_tokens_mask=True,
-        truncation=True,
-    )
-    labels = output.input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, -100) # -100是default ignore_index
-
-    text = processor.apply_chat_template(messages, truncation=True)
-    output = processor(images=images, text=text)
-    labels = F.pad(labels, (output.input_ids.size(1) - labels.size(1), 0), value=-100)
-
-    return {
-        "input_ids": output.input_ids.squeeze(),
-        "pixel_values": output.pixel_values.squeeze(),
-        "attention_mask": output.attention_mask.squeeze(),
-        "labels": labels.squeeze(),
-    }
+    
