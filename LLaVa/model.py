@@ -19,12 +19,12 @@ class LLaVaConfig(PretrainedConfig):
 
     def __init__(
         self,
-        base_model: str,
+        llm_model: str,
         clip_model: str,
         image_token: str = "<image>", # 注意和数据集对应好
         **kwargs,
     ):
-        self.base_model = base_model
+        self.llm_model = llm_model
         self.clip_model = clip_model
         self.image_token = image_token
         self.image_token_id = None
@@ -54,9 +54,9 @@ class MiniLLaVa(PreTrainedModel):
         assert self.image_token_id is not None, "请先设置image_token_id"
 
         self.vision_encoder = CLIPModel.from_pretrained(config.clip_model).eval()
-        self.base_model = AutoModelForCausalLM.from_pretrained(config.base_model)
-        self.vision_proj = VisionProjector(vision_dim=self.vision_encoder.vision_embed_dim, dim=self.base_model.hidden_size)
-        self.embed_tokens = self.base_model.embed_tokens
+        self.llm = AutoModelForCausalLM.from_pretrained(config.llm_model)
+        self.vision_proj = VisionProjector(vision_dim=self.vision_encoder.vision_embed_dim, dim=self.llm.config.hidden_size)
+        self.embed_tokens = self.llm.model.embed_tokens
 
         for param in self.vision_encoder.parameters():
             param.requires_grad = False
@@ -108,7 +108,7 @@ class MiniLLaVa(PreTrainedModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-        return self.base_model(
+        return self.llm(
             inputs_embeds=inputs_embeds, 
             attention_mask=attention_mask, 
             use_cache=use_cache,
@@ -119,16 +119,16 @@ class MiniLLaVa(PreTrainedModel):
     
 
 if __name__ == "__main__":
-    from transformers import AutoTokenizer, CLIPProcessor 
+    from transformers import AutoTokenizer, CLIPImageProcessor 
     from processor import myLlavaProcessor
 
     config = LLaVaConfig(
-        base_model="gpt2",
+        llm_model="gpt2",
         clip_model="openai/clip-vit-base-patch16"
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(config.base_model, trust_remote_code=True)
-    image_processor = CLIPProcessor.from_pretrained(config.clip_model)
+    tokenizer = AutoTokenizer.from_pretrained(config.llm_model, trust_remote_code=True)
+    image_processor = CLIPImageProcessor.from_pretrained(config.clip_model)
     if config.image_token not in tokenizer.vocab:
         tokenizer.add_special_tokens({"additional_special_tokens": [config.image_token]})
     config.image_token_id = tokenizer.convert_tokens_to_ids(config.image_token)
