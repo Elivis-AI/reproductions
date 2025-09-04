@@ -5,20 +5,20 @@ class ModelConfig(PretrainedConfig):
     model_type = "myGPT"
 
     def __init__(
-            self,
-            dim: int = 512,
-            n_layers: int = 8,
-            n_heads: int = 8,
-            n_kv_heads: int = 4,
-            vocab_size: int = 6400,
-            hidden_dim: int = None,
-            norm_eps: float = 1e-5,
-            max_seq_len: int = 8192,
-            padding_idx: int = None,
-            rope_theta: int = 1e6,
-            dropout: float = 0.0,
-            flash_attn: bool = True,
-            **kwargs,
+        self,
+        dim: int = 512,
+        n_layers: int = 8,
+        n_heads: int = 8,
+        n_kv_heads: int = 4,
+        vocab_size: int = 6400,
+        hidden_dim: int = None,
+        norm_eps: float = 1e-5,
+        max_seq_len: int = 8192,
+        padding_idx: int = None,
+        rope_theta: int = 1e6,
+        dropout: float = 0.0,
+        flash_attn: bool = True,
+        **kwargs,
     ):
         self.dim = dim
         self.n_layers = n_layers
@@ -41,7 +41,7 @@ class ModelConfig(PretrainedConfig):
             return multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
 
-# size ref:
+# size(dense model) ref:
 # {
 #     # names follow the huggingface naming conventions
 #     # GPT-1
