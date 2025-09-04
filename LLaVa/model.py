@@ -19,8 +19,8 @@ class LLaVaConfig(PretrainedConfig):
 
     def __init__(
         self,
-        llm_model: str,
-        clip_model: str,
+        llm_model: str = "Qwen/Qwen2.5-0.5B",
+        clip_model: str = "openai/clip-vit-base-patch16",
         image_token: str = "<image>", # 注意和数据集对应好
         **kwargs,
     ):
