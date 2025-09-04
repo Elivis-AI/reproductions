@@ -90,4 +90,4 @@ if __name__ == "__main__":
 
     # print(f"训练完成，模型已保存至{trainer_args.output_dir}")
     trainer.save_model(trainer_args.output_dir)
-    tokenizer.save_pretrained(trainer_args.output_dir)
+    processor.save_pretrained(trainer_args.output_dir)
