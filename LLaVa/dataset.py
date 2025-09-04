@@ -75,3 +75,20 @@ class JsonPretrainDataset(VLMDataset):
             print(f"Error loading image {img_path}: {e}")
             image = Image.new('RGB', (224, 224), color = 'white')
         return {'messages': messages, 'images': image}
+    
+
+class JsonSFTDataset(VLMDataset):
+    def __init__(self, data_path, processor):
+        data = load_dataset("json", data_files=data_path, split='train')
+        self.data_root = os.path.dirname(data_path)
+        super().__init__(data, processor)
+    
+    def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        messages = item['conversations']
+        img_path = os.path.join(self.data_root, 'sft_images', item['image'])
+        try:
+            image = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            image = Image.new('RGB', (224, 224), color = 'white')
+        return {'messages': messages, 'images': image}
