@@ -91,6 +91,7 @@ class MiniLLaVa(PreTrainedModel, GenerationMixin):
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
         pixel_values: Optional[torch.FloatTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
@@ -98,8 +99,15 @@ class MiniLLaVa(PreTrainedModel, GenerationMixin):
         past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         **kwargs
     ) -> CausalLMOutputWithPast:
+        
+        if (input_ids is None) ^ (inputs_embeds is not None):
+            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+        
+        if input_ids is not None:
+            inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
-        inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
+        if past_key_values is not None:
+            pixel_values = None
 
         if pixel_values is not None: # B, C, H, W
             image_features = self.get_image_embeddings(pixel_values).to(inputs_embeds.device, inputs_embeds.dtype) # B, N, D
