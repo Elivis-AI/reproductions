@@ -3,6 +3,7 @@ from typing import Optional, Tuple, List
 from torch import nn
 from transformers import (
     PreTrainedModel,
+    GenerationMixin,
     PretrainedConfig,
     AutoModelForCausalLM,
     CLIPVisionModel,
@@ -45,7 +46,7 @@ class VisionProjector(nn.Module):
         return vision_proj
 
 
-class MiniLLaVa(PreTrainedModel):
+class MiniLLaVa(PreTrainedModel, GenerationMixin):
     config_class = LLaVaConfig
 
     def __init__(self, config: LLaVaConfig = None):
