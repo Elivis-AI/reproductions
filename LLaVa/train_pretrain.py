@@ -9,7 +9,7 @@ from transformers import (
 
 from model import LLaVaConfig, MiniLLaVa
 from processor import myLlavaProcessor
-from dataset import ExamplePretrainDataset
+from dataset import JsonPretrainDataset
 
 from dataclasses import dataclass
 import warnings
@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     
     # 数据准备
-    dataset = ExamplePretrainDataset(args.dataset_path, processor)
+    dataset = JsonPretrainDataset(args.dataset_path, processor)
     
     if not hasattr(tokenizer, 'pad_token'):
         tokenizer.pad_token = tokenizer.eos_token

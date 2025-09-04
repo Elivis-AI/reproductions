@@ -10,7 +10,7 @@ from processor import myLlavaProcessor
 from typing import Any, Dict
 
 
-class VLMPretrainDataset(Dataset):
+class VLMDataset(Dataset):
     data: Any
     processor: myLlavaProcessor
 
@@ -44,17 +44,23 @@ class VLMPretrainDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        raise NotImplementedError
-
     def __getitem__(self, idx):
         item = self.data[idx]
         output = self.preprocess(item)
         assert output.keys() == {'messages', 'images'}
         return self.build_output(**output)
     
+    def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """output
+        {
+            "messages": List[Dict[str, str]],
+            "images": PIL.Image || List[PIL.Image] || np.ndarray || List[np.ndarray] || torch.Tensor || List[torch.Tensor]
+        }
+        """
+        raise NotImplementedError
 
-class ExamplePretrainDataset(VLMPretrainDataset):
+
+class JsonPretrainDataset(VLMDataset):
     def __init__(self, data_path, processor):
         data = load_dataset("json", data_files=data_path, split='train')
         self.data_root = os.path.dirname(data_path)
@@ -63,5 +69,9 @@ class ExamplePretrainDataset(VLMPretrainDataset):
     def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
         messages = item['conversations']
         img_path = os.path.join(self.data_root, 'pretrain_images', item['image'])
-        image = Image.open(img_path).convert('RGB')
+        try:
+            image = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            image = Image.new('RGB', (224, 224), color = 'white')
         return {'messages': messages, 'images': image}
