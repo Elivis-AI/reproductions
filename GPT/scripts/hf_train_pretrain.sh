@@ -26,6 +26,7 @@ torchrun \
   --tokenizer "./tokenizer" \
   --output_dir $OUTPUT_DIR \
   --per_device_train_batch_size 32 \
+  --dataloader_num_workers 8 \
   --num_train_epochs 1 \
   --max_seq_len 1024 \
   --lr_scheduler_type="cosine" \

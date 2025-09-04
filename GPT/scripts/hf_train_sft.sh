@@ -26,6 +26,7 @@ torchrun \
   --model_path "./pretrain" \
   --output_dir $OUTPUT_DIR \
   --per_device_train_batch_size 32 \
+  --dataloader_num_workers 8 \
   --num_train_epochs 5 \
   --max_seq_len 4096 \
   --lr_scheduler_type="cosine" \
