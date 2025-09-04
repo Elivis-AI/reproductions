@@ -2,7 +2,7 @@
 
 OUTPUT_DIR=./sft
 LOG_DIR=./logs
-WANDB_MODE="offline"
+export WANDB_MODE="offline"
 # export WANDB_MODE="online"
 
 
