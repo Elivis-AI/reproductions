@@ -10,7 +10,6 @@ def process_pretrain(text: str, tokenizer: AutoTokenizer):
         return_token_type_ids=False,
         padding=False,
         truncation=True,
-        max_length=tokenizer.model_max_length,
     )
     
     return {"input_ids": output.input.squeeze()}
@@ -31,10 +30,10 @@ def process_sft(messages: List[Dict[str, str]], tokenizer: AutoTokenizer):
         messages,
         tokenize=True,
         padding=False,
+        return_tensors="pt",
         return_dict=True,
         return_assistant_tokens_mask=True,
         truncation=True,
-        max_length=tokenizer.model_max_length,
     )
 
     input_ids = output.input_ids.squeeze()
@@ -50,7 +49,7 @@ if __name__ == '__main__':
     from datasets import load_dataset, load_from_disk
 
     tokenizer = AutoTokenizer.from_pretrained("./tokenizer")
-    dataset = load_dataset("json", data_files='pretrain_hq_v7.jsonl', split='train')
+    dataset = load_dataset("json", data_files='pretrain.jsonl', split='train')
 
     def process_dataset(item):
         text = item['text']
@@ -59,5 +58,5 @@ if __name__ == '__main__':
     dataset = dataset.map(process_dataset, num_proc=(os.cpu_count() or 1), remove_columns=dataset.column_names)
     
     # 持久化tokenized dataset
-    dataset.save_to_disk("tokenized_pretrain_hq_v7")
-    dataset = load_from_disk("tokenized_pretrain_hq_v7")
+    dataset.save_to_disk("tokenized_pretrain")
+    dataset = load_from_disk("tokenized_pretrain")
