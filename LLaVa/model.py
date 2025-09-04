@@ -124,23 +124,3 @@ class MiniLLaVa(PreTrainedModel, GenerationMixin):
             past_key_values=past_key_values,
             **kwargs
         )
-    
-
-if __name__ == "__main__":
-    from transformers import AutoTokenizer, CLIPImageProcessor 
-    from processor import myLlavaProcessor
-
-    config = LLaVaConfig(
-        llm_model="gpt2",
-        clip_model="openai/clip-vit-base-patch16"
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(config.llm_model, trust_remote_code=True)
-    image_processor = CLIPImageProcessor.from_pretrained(config.clip_model)
-    if config.image_token not in tokenizer.vocab:
-        tokenizer.add_special_tokens({"additional_special_tokens": [config.image_token]})
-    config.image_token_id = tokenizer.convert_tokens_to_ids(config.image_token)
-    processor = myLlavaProcessor(image_processor=image_processor, tokenizer=tokenizer, patch_size=16)
-
-
-    llavamodel = MiniLLaVa(config)
