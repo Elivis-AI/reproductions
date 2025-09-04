@@ -64,7 +64,7 @@ class MiniLLaVa(PreTrainedModel):
     def get_image_embeddings(self, pixel_values: torch.FloatTensor) -> List[torch.Tensor]:
         output = self.vision_encoder(pixel_values=pixel_values)
         vision_embedding = self.vision_proj(output.last_hidden_state[:, 1:, :]) # 去掉[CLS]，(B, N, D)
-        return list(vision_embedding)
+        return vision_embedding
 
 
     def get_placeholder_mask(
@@ -100,9 +100,8 @@ class MiniLLaVa(PreTrainedModel):
 
         inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
-        if pixel_values is not None:
-            image_features = self.get_image_embeddings(pixel_values)
-            image_features = torch.cat(image_features, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+        if pixel_values is not None: # B, C, H, W
+            image_features = self.get_image_embeddings(pixel_values).to(inputs_embeds.device, inputs_embeds.dtype) # B, N, D
             special_image_mask = self.get_placeholder_mask(
                 input_ids, inputs_embeds, image_features=image_features
             )
