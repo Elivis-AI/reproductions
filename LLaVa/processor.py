@@ -1,6 +1,7 @@
 # https://github.com/huggingface/transformers/blob/514b3e81b77ab823d755eb4e3a34b78d1c067454/src/transformers/models/llava/image_processing_llava_fast.py
 """Fast Image processor class for LLaVa."""
 import torch
+import torch.nn.functional as F
 from transformers import (
     ProcessorMixin, 
     BatchFeature, 
@@ -94,6 +95,8 @@ def process_dataset(messages, images, processor: myLlavaProcessor):
 
     text = processor.apply_chat_template(messages, truncation=True)
     output = processor(images=images, text=text)
+    labels = F.pad(labels, (output.input_ids.size(1) - labels.size(1), 0), value=-100)
+
     return {
         "input_ids": output.input_ids.squeeze(),
         "pixel_values": output.pixel_values.squeeze(),
