@@ -97,10 +97,13 @@ def process_dataset(messages, images, processor: myLlavaProcessor):
         return_assistant_tokens_mask=True,
         truncation=True,
     )
-
-    input_ids = output.input_ids.squeeze()
-    labels = input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, -100) # -100是default ignore_index
+    labels = output.input_ids.masked_fill(torch.tensor(output.assistant_masks) == False, -100) # -100是default ignore_index
 
     text = processor.apply_chat_template(messages, truncation=True)
     output = processor(images=images, text=text)
-    return {**output, "labels": labels}
+    return {
+        "input_ids": output.input_ids.squeeze(),
+        "pixel_values": output.pixel_values.squeeze(),
+        "attention_mask": output.attention_mask.squeeze(),
+        "labels": labels.squeeze(),
+    }
