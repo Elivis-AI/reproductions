@@ -5,7 +5,7 @@ from transformers import (
     PreTrainedModel,
     PretrainedConfig,
     AutoModelForCausalLM,
-    CLIPModel,
+    CLIPVisionModel,
 )
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from typing import List
@@ -53,17 +53,17 @@ class MiniLLaVa(PreTrainedModel):
         self.image_token_id = config.image_token_id
         assert self.image_token_id is not None, "请先设置image_token_id"
 
-        self.vision_encoder = CLIPModel.from_pretrained(config.clip_model).eval()
+        self.vision_encoder = CLIPVisionModel.from_pretrained(config.clip_model).eval()
         self.llm = AutoModelForCausalLM.from_pretrained(config.llm_model)
-        self.vision_proj = VisionProjector(vision_dim=self.vision_encoder.vision_embed_dim, dim=self.llm.config.hidden_size)
+        self.vision_proj = VisionProjector(vision_dim=self.vision_encoder.config.hidden_size, dim=self.llm.config.hidden_size)
         self.embed_tokens = self.llm.model.embed_tokens
 
         for param in self.vision_encoder.parameters():
             param.requires_grad = False
 
     def get_image_embeddings(self, pixel_values: torch.FloatTensor) -> List[torch.Tensor]:
-        vision_encoding = self.vision_encoder(pixel_values=pixel_values)
-        vision_embedding = self.vision_proj(vision_encoding)
+        output = self.vision_encoder(pixel_values=pixel_values)
+        vision_embedding = self.vision_proj(output.last_hidden_state)
         return list(vision_embedding)
 
 
