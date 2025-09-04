@@ -44,12 +44,12 @@ class VLMPretrainDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def get_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        output = self.get_item(item)
+        output = self.preprocess(item)
         assert output.keys() == {'messages', 'images'}
         return self.build_output(**output)
     
@@ -60,7 +60,7 @@ class ExamplePretrainDataset(VLMPretrainDataset):
         self.data_root = os.path.dirname(data_path)
         super().__init__(data, processor)
     
-    def get_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def preprocess(self, item: Dict[str, Any]) -> Dict[str, Any]:
         messages = item['conversations']
         img_path = os.path.join(self.data_root, 'pretrain_images', item['image'])
         image = Image.open(img_path).convert('RGB')

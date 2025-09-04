@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from hf_config import ModelConfig
 from hf_model import MyGPTForCausalLM
-from preprocess import process_pretrain
+from dataset import JsonPretrainDataset
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -49,11 +49,7 @@ if __name__ == "__main__":
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 
     # 数据准备
-    def process_dataset(item):
-        text = item['text']
-        return process_pretrain(text, tokenizer)
-    dataset = load_dataset("json", data_files=args.dataset_path, split='train')
-    dataset = dataset.map(process_dataset, num_proc=(os.cpu_count() or 1), remove_columns=dataset.column_names)
+    dataset = JsonPretrainDataset(args.dataset_path, tokenizer=tokenizer)
     collator = DataCollatorForLanguageModeling( # 动态padding
         tokenizer=tokenizer,
         mlm=False,

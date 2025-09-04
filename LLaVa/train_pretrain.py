@@ -45,6 +45,7 @@ class MyTrainingArguments:
     clip_model: str
     patch_size: int
     image_token: str = "<image>" # 注意和数据集对应好
+    max_seq_len: int = None
 
 
 if __name__ == "__main__":
