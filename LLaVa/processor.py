@@ -18,9 +18,6 @@ class myLlavaProcessor(ProcessorMixin):
             The tokenizer is a required input.
         patch_size (`int`):
             Patch size from the vision tower.
-        vision_feature_select_strategy (`str`, *optional*):
-            The feature selection strategy used to select the vision feature from the vision backbone.
-            Should be same as in model's config
         chat_template (`str`, *optional*): A Jinja template which will be used to convert lists of messages
             in a chat into a tokenizable string.
         image_token (`str`, *optional*, defaults to `"<image>"`):
@@ -39,7 +36,6 @@ class myLlavaProcessor(ProcessorMixin):
         image_processor: CLIPImageProcessor,
         tokenizer: AutoTokenizer,
         patch_size: int,
-        vision_feature_select_strategy: str = "default",
         chat_template: str = None,
         image_token: str = "<image>",
         num_additional_image_tokens: int = 0,
@@ -47,7 +43,6 @@ class myLlavaProcessor(ProcessorMixin):
     ):
         self.patch_size = patch_size
         self.num_additional_image_tokens = num_additional_image_tokens
-        self.vision_feature_select_strategy = vision_feature_select_strategy
         self.image_token = image_token
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
 
@@ -74,8 +69,6 @@ class myLlavaProcessor(ProcessorMixin):
             assert B == 1, "TODO: support multi pics"
 
             num_image_tokens = (height // self.patch_size) * (width // self.patch_size) + self.num_additional_image_tokens
-            if self.vision_feature_select_strategy == "default":
-                num_image_tokens -= 1
 
             prompt_strings = []
             for sample in text:
