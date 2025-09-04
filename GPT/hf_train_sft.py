@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-
+import os
 from transformers import (
     AutoTokenizer,
     DataCollatorForSeq2Seq,
@@ -7,10 +6,12 @@ from transformers import (
     TrainingArguments,
     HfArgumentParser,
 )
+from datasets import load_dataset
 
 from hf_model import MyGPTForCausalLM
-from dataset import MiniMindSFTDataset
+from preprocess import process_sft
 
+from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -54,7 +55,11 @@ if __name__ == "__main__":
     # print(f'参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} M')
 
     # 数据准备
-    dataset = MiniMindSFTDataset(dataset=args.dataset_path, tokenizer=tokenizer)
+    def process_dataset(item):
+        messages = item['conversations']
+        return process_sft(messages, tokenizer)
+    dataset = load_dataset("json", data_files=args.dataset_path, split='train')
+    dataset = dataset.map(process_dataset, num_proc=(os.cpu_count() or 1), remove_columns=dataset.column_names)
     collator = DataCollatorForSeq2Seq( # 动态padding
         tokenizer=tokenizer,
         padding=True,

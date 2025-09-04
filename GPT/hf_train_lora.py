@@ -1,3 +1,5 @@
+import os
+from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     DataCollatorForSeq2Seq,
@@ -8,7 +10,7 @@ from transformers import (
 from peft import get_peft_model, LoraConfig, TaskType
 
 from hf_model import MyGPTForCausalLM
-from dataset import MiniMindSFTDataset
+from preprocess import process_sft
 
 from dataclasses import dataclass
 import warnings
@@ -52,7 +54,11 @@ if __name__ == "__main__":
     model.print_trainable_parameters()
     
     # 数据准备
-    dataset = MiniMindSFTDataset(dataset=args.dataset_path, tokenizer=tokenizer)
+    def process_dataset(item):
+        messages = item['conversations']
+        return process_sft(messages, tokenizer)
+    dataset = load_dataset("json", data_files=args.dataset_path, split='train')
+    dataset = dataset.map(process_dataset, num_proc=(os.cpu_count() or 1), remove_columns=dataset.column_names)
     collator = DataCollatorForSeq2Seq( # 动态padding
         tokenizer=tokenizer,
         padding=True,
