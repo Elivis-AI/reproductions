@@ -40,7 +40,7 @@ torchrun \
   --save_total_limit 2 \
   --report_to "wandb" \
   --run_name "GPT-Pretrain" \
-  --learning_rate 5e-5 \
+  --learning_rate 5e-4 \
   --fp16 \
   --remove_unused_columns False \
   --max_grad_norm 1.0 \

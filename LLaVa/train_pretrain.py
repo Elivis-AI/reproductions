@@ -65,6 +65,9 @@ if __name__ == "__main__":
     processor = myLlavaProcessor(image_processor=image_processor, tokenizer=tokenizer, patch_size=args.patch_size, chat_template=CHAT_TEMPLATE)
     model = MiniLLaVa(model_config)
 
+    # 预训练冻结LLM
+    for param in model.llm.parameters():
+        param.requires_grad = False
     
     # 数据准备
     dataset = JsonPretrainDataset(args.dataset_path, processor)

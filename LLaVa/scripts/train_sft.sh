@@ -34,7 +34,7 @@ torchrun \
   --save_strategy "steps" \
   --save_steps 10000 \
   --logging_dir $LOG_DIR \
-  --logging_steps 100 \
+  --logging_steps 20 \
   --save_total_limit 2 \
   --report_to "wandb" \
   --run_name "GPT-Pretrain" \
