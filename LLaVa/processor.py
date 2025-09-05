@@ -1,5 +1,5 @@
-# https://github.com/huggingface/transformers/blob/514b3e81b77ab823d755eb4e3a34b78d1c067454/src/transformers/models/llava/image_processing_llava_fast.py
-"""Fast Image processor class for LLaVa."""
+# Ref: https://github.com/huggingface/transformers/blob/514b3e81b77ab823d755eb4e3a34b78d1c067454/src/transformers/models/llava/processing_llava.py
+
 from transformers import (
     ProcessorMixin, 
     BatchFeature, 
