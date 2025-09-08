@@ -26,18 +26,18 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 class Attention(nn.Module):
     def __init__(self, args: ModelConfig):
         super().__init__()
-        self.n_heads = args.n_heads
-        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
+        self.n_heads = args.num_attention_heads
+        self.n_kv_heads = args.num_attention_heads if args.num_key_value_heads is None else args.num_key_value_heads
         assert self.n_heads % self.n_kv_heads == 0
         self.n_rep = self.n_heads // self.n_kv_heads
         self.dropout = args.dropout
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention') and args.flash_attn
 
-        self.head_dim = args.dim // args.n_heads
-        self.w_q = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
-        self.w_k = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
-        self.w_v = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
-        self.w_out = nn.Linear(args.dim, args.dim, bias=False)
+        self.head_dim = args.hidden_size // args.num_attention_heads
+        self.w_q = nn.Linear(args.hidden_size, args.num_attention_heads * self.head_dim, bias=False)
+        self.w_k = nn.Linear(args.hidden_size, self.n_kv_heads * self.head_dim, bias=False)
+        self.w_v = nn.Linear(args.hidden_size, self.n_kv_heads * self.head_dim, bias=False)
+        self.w_out = nn.Linear(args.hidden_size, args.hidden_size, bias=False)
         self.attn_dropout = nn.Dropout(args.dropout)
         self.resid_dropout = nn.Dropout(args.dropout)
         
@@ -106,9 +106,9 @@ class Attention(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.w1 = nn.Linear(config.dim, config.hidden_dim, bias=False)
-        self.w2 = nn.Linear(config.hidden_dim, config.dim, bias=False)
-        self.w3 = nn.Linear(config.dim, config.hidden_dim, bias=False)
+        self.w1 = nn.Linear(config.hidden_size, config.mlp_hidden_dim, bias=False)
+        self.w2 = nn.Linear(config.mlp_hidden_dim, config.hidden_size, bias=False)
+        self.w3 = nn.Linear(config.hidden_size, config.mlp_hidden_dim, bias=False)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
@@ -128,13 +128,13 @@ class RMSNorm(torch.nn.Module):
 class GPTBlock(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.n_heads = config.n_heads
-        self.dim = config.dim
-        self.head_dim = config.dim // config.n_heads
+        self.n_heads = config.num_attention_heads
+        self.dim = config.hidden_size
+        self.head_dim = config.hidden_size // config.num_attention_heads
         
         self.attention = Attention(config)
-        self.attention_norm = RMSNorm(config.dim, eps=config.norm_eps)
-        self.ffn_norm = RMSNorm(config.dim, eps=config.norm_eps)
+        self.attention_norm = RMSNorm(config.hidden_size, eps=config.norm_eps)
+        self.ffn_norm = RMSNorm(config.hidden_size, eps=config.norm_eps)
         self.feed_forward = FeedForward(config)
 
     def forward(
@@ -162,10 +162,10 @@ class MyGPTModel(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.dropout = nn.Dropout(config.dropout)
-        self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)])
-        self.norm = RMSNorm(config.dim, eps=config.norm_eps)
-        self.token_emb = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.padding_idx)
-        self.rotary_emb = RotaryEmbedding(config.max_seq_len, config.dim // config.n_heads, base=config.rope_theta)
+        self.layers = nn.ModuleList([GPTBlock(config) for _ in range(config.num_hidden_layers)])
+        self.norm = RMSNorm(config.hidden_size, eps=config.norm_eps)
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.padding_idx)
+        self.rotary_emb = RotaryEmbedding(config.max_seq_len, config.hidden_size // config.num_attention_heads, base=config.rope_theta)
 
     def forward(
         self,
@@ -179,7 +179,7 @@ class MyGPTModel(nn.Module):
         **kwargs
     ) -> BaseModelOutputWithPast:
 
-        inputs_embeds: torch.Tensor = self.token_emb(input_ids) # (B, L, D)
+        inputs_embeds: torch.Tensor = self.embed_tokens(input_ids) # (B, L, D)
 
         if past_key_values is None:
             past_key_values = [None] * len(self.layers)
@@ -221,11 +221,12 @@ class MyGPTForCausalLM(PreTrainedModel, GenerationMixin):
         super().__init__(config) # 务必传入config
         self.model = MyGPTModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         # 分类头和嵌入表权重共享，可以减少模型参数数量，提高训练和推理效率
         # https://arxiv.org/abs/1608.05859
-        self.model.token_emb.weight = self.lm_head.weight
+        if config.tie_word_embeddings:
+            self.model.embed_tokens.weight = self.lm_head.weight
 
         # 确保模型初始化完成后，权重被合理初始化；
         # 确保 tied weights（共享权重）被建立；
@@ -270,12 +271,12 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained('./weights')
     config = ModelConfig(
-        dim=64,
-        n_layers=2,
-        n_heads=4,
-        n_kv_heads=4,
+        hidden_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=4,
         vocab_size=6400,
-        hidden_dim=None,
+        mlp_hidden_dim=None,
         norm_eps=1e-5,
         max_seq_len=8192,
         rope_theta=1e6,

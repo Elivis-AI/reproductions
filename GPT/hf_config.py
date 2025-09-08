@@ -6,32 +6,34 @@ class ModelConfig(PretrainedConfig):
 
     def __init__(
         self,
-        dim: int = 512,
-        n_layers: int = 8,
-        n_heads: int = 8,
-        n_kv_heads: int = 4,
+        hidden_size: int = 512,
+        num_hidden_layers: int = 8,
+        num_attention_heads: int = 8,
+        num_key_value_heads: int = 4,
         vocab_size: int = 6400,
-        hidden_dim: int = None,
+        mlp_hidden_dim: int = None,
         norm_eps: float = 1e-5,
         max_seq_len: int = 8192,
         padding_idx: int = None,
         rope_theta: int = 1e6,
         dropout: float = 0.0,
         flash_attn: bool = True,
+        tie_word_embeddings=True,
         **kwargs,
     ):
-        self.dim = dim
-        self.n_layers = n_layers
-        self.n_heads = n_heads
-        self.n_kv_heads = n_kv_heads
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attention_heads = num_attention_heads
+        self.num_key_value_heads = num_key_value_heads
         self.vocab_size = vocab_size
-        self.hidden_dim = hidden_dim or self._default_ffn_dim(dim)
+        self.mlp_hidden_dim = mlp_hidden_dim or self._default_ffn_dim(hidden_size)
         self.norm_eps = norm_eps
         self.max_seq_len = max_seq_len
         self.padding_idx = padding_idx
         self.rope_theta = rope_theta
         self.dropout = dropout
         self.flash_attn = flash_attn
+        self.tie_word_embeddings = tie_word_embeddings
 
         super().__init__(**kwargs) # 务必保留kwargs
     
@@ -62,10 +64,10 @@ class ModelConfig(PretrainedConfig):
 
 
 def compute_params_and_flops(config: ModelConfig):
-    dim = config.dim
-    n_layers = config.n_layers
-    n_heads = config.n_heads
-    hidden_dim = config.hidden_dim
+    dim = config.hidden_size
+    n_layers = config.num_hidden_layers
+    n_heads = config.num_attention_heads
+    hidden_dim = config.mlp_hidden_dim
     vocab_size = config.vocab_size
     seq_len = config.max_seq_len
     
