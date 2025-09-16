@@ -1,4 +1,3 @@
-import os
 from transformers import (
     AutoTokenizer,
     DataCollatorForSeq2Seq,
@@ -6,7 +5,6 @@ from transformers import (
     TrainingArguments,
     HfArgumentParser,
 )
-from datasets import load_dataset
 
 from hf_model import MyGPTForCausalLM
 from dataset import JsonSFTDataset
