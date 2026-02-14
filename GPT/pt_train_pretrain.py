@@ -129,10 +129,6 @@ def train(args):
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.weight)
     tokenizer.model_max_length = args.max_seq_len
 
-    if args.use_compile:
-        model = torch.compile(model)
-        main_process_print('torch.compile enabled')
-    
     train_ds = JsonPretrainDataset(args.data_path, tokenizer)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
@@ -161,14 +157,17 @@ def train(args):
         if saved_ws != current_ws:
             start_step = start_step * saved_ws // current_ws
     
-    # ========== 4. 设置DDP、混合精度 ==========
+    # ========== 4. 设置DDP、混合精度、编译模型 ==========
+    if args.use_compile:
+        model = torch.compile(model)
+        main_process_print('torch.compile enabled')
+
     if dist.is_initialized():
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[local_rank])
     
-    device_type = "cuda" if "cuda" in args.device else "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
-    autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
+    autocast_ctx = torch.cuda.amp.autocast(dtype=dtype) if "cuda" in args.device else nullcontext()
 
     # ========== 5. 配置logger(wandb) ==========
     wandb = None

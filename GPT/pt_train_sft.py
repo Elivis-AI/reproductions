@@ -155,10 +155,6 @@ def train(args):
     tokenizer.model_max_length = args.max_seq_len
     tokenizer.chat_template = CHAT_TEMPLATE
 
-    if args.use_compile:
-        model = torch.compile(model)
-        main_process_print('torch.compile enabled')
-    
     train_ds = JsonSFTDataset(args.data_path, tokenizer)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
@@ -187,7 +183,11 @@ def train(args):
         if saved_ws != current_ws:
             start_step = start_step * saved_ws // current_ws
 
-    # ========== 4. 设置DDP、混合精度 ==========
+    # ========== 4. 设置DDP、混合精度、编译模型 ==========
+    if args.use_compile:
+        model = torch.compile(model)
+        main_process_print('torch.compile enabled')
+
     if dist.is_initialized():
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[local_rank])
