@@ -91,7 +91,7 @@ class HFPretrainDataset(PretrainDataset):
         dataset = load_dataset(dataset, split='train')
         super().__init__(dataset, tokenizer)
 
-    def extract_text(self, item):
+    def preprocess(self, item):
         text = item['INSTRUCTION']  + '\n\n' + item['RESPONSE']
         text = text + self.tokenizer.eos_token  # 添加<|endoftext|>
         return text
@@ -102,7 +102,7 @@ class JsonPretrainDataset(PretrainDataset):
         dataset = load_dataset("json", data_files=dataset, split='train')
         super().__init__(dataset, tokenizer)
 
-    def extract_text(self, item):
+    def preprocess(self, item):
         return item['text']
 
 

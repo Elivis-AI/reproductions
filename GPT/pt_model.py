@@ -173,7 +173,6 @@ class MyGPT(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
         # KV cache related
@@ -213,13 +212,6 @@ class MyGPT(nn.Module):
         x = self.norm(x)
 
         logits: torch.Tensor = self.lm_head(x)
-        
-        if labels is not None:
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = labels[:, 1:].contiguous()
-            loss = F.cross_entropy(shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1), reduction='mean')
-        else:
-            loss = None
 
         return dict(
             logits=logits,
