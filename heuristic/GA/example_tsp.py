@@ -4,11 +4,21 @@ import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from sklearn.metrics import pairwise_distances
 
 from GA import PermutationDomain
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+def setup_seed(seed: int):
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 class TSP:
     def __init__(self, dis_matrix):
@@ -27,7 +37,8 @@ class CityTSP(TSP):
     def __init__(self, csv_path, size=None):
         data = pd.read_csv(csv_path, delimiter=';', header=None).values
         self.pos = data[:size, 1:].astype(float)
-        self.dis_matrix = torch.tensor(pairwise_distances(self.pos, metric='euclidean'), dtype=torch.float32, device=device)
+        pos_tensor = torch.tensor(self.pos, dtype=torch.float32)
+        self.dis_matrix = torch.cdist(pos_tensor, pos_tensor).to(device)
         self.city_list = [str(x).strip() for x in data[:size, 0]]
         self.n = len(self.city_list)
         self.best_val = float('inf')
@@ -101,7 +112,8 @@ class HardCityTSP(CityTSP):
         indices = torch.randperm(max_size)[:size].cpu().numpy() if size else range(max_size)
 
         self.pos = data[indices, -2:].astype(float)
-        self.dis_matrix = torch.tensor(pairwise_distances(self.pos, metric='euclidean'), dtype=torch.float32, device=device)
+        pos_tensor = torch.tensor(self.pos, dtype=torch.float32)
+        self.dis_matrix = torch.cdist(pos_tensor, pos_tensor).to(device)
         self.city_list = ['-'.join(x.strip() for x in row) for row in data[indices, :3].astype(str)]
         self.n = len(self.city_list)
 
@@ -130,8 +142,7 @@ def GA(tsp: CityTSP, num=50, n_step=50, dynamic_draw=False):
 
             group = domain.mutate(group, p=0.6)
             group = domain.cross(group, k=math.floor(0.8 * n_city**(1.0 - n / n_step)) + 1, p=0.6)
-            worst_idx = torch.argmax(fitness)
-            group[worst_idx] = best
+            group[torch.argmax(fitness)] = best
 
             pbar.update(1)
 
@@ -144,7 +155,7 @@ def GA(tsp: CityTSP, num=50, n_step=50, dynamic_draw=False):
         pbar.set_postfix({'best_val': final_best_val})
     return best.cpu().numpy(), final_best_val
 
-
+@torch.no_grad()
 def test_tsp():
     tsp = CityTSP(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', "china.csv"))
     best, best_val = GA(tsp, num=10000, n_step=5000, dynamic_draw=True)
@@ -152,18 +163,17 @@ def test_tsp():
     print("Best Distance:", best_val)
     tsp.draw_path(best)
 
-
+@torch.no_grad()
 def hard_tsp(size=20):
     tsp = HardCityTSP(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', "china_main_citys.csv"), size=size)
-    best, best_val = GA(tsp, num=size * 1000, n_step=5 * size**2, dynamic_draw=True)
+    best, best_val = GA(tsp, num=size * 1000, n_step=int(100 * size**1.5), dynamic_draw=False)
     print("Best Path:", best)
     print("Best Distance:", best_val)
     tsp.draw_path(best)
 
 
 if __name__ == '__main__':
-    SEED = 42
-    torch.manual_seed(SEED)
+    setup_seed(0)
     # test
-    test_tsp()
-    # hard_tsp(size=50)
+    # test_tsp()
+    hard_tsp(size=100)
