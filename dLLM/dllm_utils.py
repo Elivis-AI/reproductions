@@ -1,22 +1,88 @@
 import math
-from typing import Optional, Dict, Any, List
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers.modeling_outputs import MaskedLMOutput
 
 
 # ##################################################################################
-#   dLLM Generation Mixin: Block-wise 迭代去噪生成
+#   DllmMixin: 扩散语言模型的核心通用逻辑
+#   包含: 双向注意力改造 / 噪声注入 / 加权损失 / Block-wise 生成
 # ##################################################################################
 
-class DLLMGenerationMixin:
+class DllmMixin:
+    """
+    dLLM 核心 Mixin，宿主类需满足:
+      - self.model: 含 .layers (nn.ModuleList) 的 Transformer backbone
+      - self.lm_head: 输出投影层
+      - self.config: 含 vocab_size, eos_token_id
+      - self.mask_token_id: int
+      - self.mask_epsilon: float
+    """
 
+    # ------------------------------------------------------------------
+    #  双向注意力改造
+    # ------------------------------------------------------------------
+    def _make_bidirectional(self):
+        """移除 causal mask，使所有 attention 层变为双向"""
+        for layer in self.model.layers:
+            layer.self_attn.is_causal = False
+        self.model._update_causal_mask = self._bidirectional_mask
+
+    def _bidirectional_mask(self, attention_mask, input_tensor, *args, **kwargs):
+        """
+        双向注意力 mask: 仅遮蔽 padding token。
+        返回 shape: [bsz, 1, seq_len, seq_len]
+        """
+        bsz, seq_len = input_tensor.shape[:2]
+        dtype = input_tensor.dtype
+        device = input_tensor.device
+
+        if attention_mask is not None:
+            expanded = attention_mask[:, None, None, :].expand(bsz, 1, seq_len, seq_len).to(dtype)
+            return (1.0 - expanded) * torch.finfo(dtype).min
+
+        return torch.zeros(bsz, 1, seq_len, seq_len, dtype=dtype, device=device)
+
+    # ------------------------------------------------------------------
+    #  MDM-style noise (token masking)
+    # ------------------------------------------------------------------
+    def add_noise_to_tokens(self, input_ids: torch.LongTensor, t: torch.FloatTensor,
+                            eps: float = None, pad_token_id: int = 0):
+        """
+        根据噪声水平 t 将 token 替换为 [MASK]。
+        p_mask = (1 - eps) * t + eps,  t=0→eps, t=1→1
+        """
+        batch_size, seq_len = input_ids.shape
+        eps = eps if eps is not None else self.mask_epsilon
+        p_mask = (1 - eps) * t + eps
+        p_mask = p_mask.unsqueeze(-1).expand(batch_size, seq_len)
+        corruption_mask = torch.rand(batch_size, seq_len, device=input_ids.device) < p_mask
+        corruption_mask = corruption_mask & (input_ids != pad_token_id)
+        noisy_input_ids = torch.where(corruption_mask, self.mask_token_id, input_ids)
+        return noisy_input_ids, corruption_mask, p_mask
+
+    # ------------------------------------------------------------------
+    #  加权交叉熵损失
+    # ------------------------------------------------------------------
+    def dllm_loss(self, logits, labels, corruption_mask, p_mask):
+        """DLLM 加权交叉熵: loss[mask] / p_mask[mask]"""
+        ce = F.cross_entropy(
+            logits.view(-1, self.config.vocab_size),
+            labels.view(-1),
+            reduction="none",
+        ).view(labels.shape)
+        return (ce[corruption_mask] / p_mask[corruption_mask]).sum() / labels.numel()
+
+
+    # ------------------------------------------------------------------
+    #  Block-wise 迭代去噪生成
+    # ------------------------------------------------------------------
     @torch.inference_mode()
     def generate(
         self,
-        inputs = None,
+        inputs=None,
         max_new_tokens: int = 128,
         temperature: float = 1.0,
         top_k: int = 0,
@@ -24,21 +90,20 @@ class DLLMGenerationMixin:
         eos_token_id: Optional[int] = None,
         mask_token_id: Optional[int] = None,
         tokenizer: Optional[Any] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> torch.Tensor:
         """DLLM Block-wise 生成: 每次生成一个 block，逐块去噪"""
         input_ids = kwargs.get("input_ids", inputs)
         bsz, prompt_len, device = input_ids.shape[0], input_ids.shape[1], input_ids.device
 
-        # mask_token_id: 优先使用传入值，否则读取模型属性
         mask_id = mask_token_id if mask_token_id is not None else getattr(self, "mask_token_id", None)
         if mask_id is None:
             raise ValueError("mask_token_id 未提供且模型未设置 self.mask_token_id")
 
-        # eos_token_id: 优先使用传入值，否则读取 config
         eos_id = eos_token_id if eos_token_id is not None else getattr(self.config, "eos_token_id", None)
         if eos_id is None:
             raise ValueError("eos_token_id 未提供且 self.config.eos_token_id 未设置")
+
         block_size = kwargs.get("block_size", 16)
         steps_per_block = steps or 8
 
@@ -79,7 +144,6 @@ class DLLMGenerationMixin:
             if eos_id is not None and (x[:, prompt_len:] == eos_id).any(dim=-1).all():
                 break
 
-        # 截断到第一个 EOS
         if eos_id is not None:
             for b in range(bsz):
                 eos_pos = (x[b, prompt_len:] == eos_id).nonzero(as_tuple=True)[0]
@@ -88,59 +152,3 @@ class DLLMGenerationMixin:
                     break
         return x
 
-
-# ##################################################################################
-#   dLLM Data Collator: 在 collate 阶段注入噪声
-# ##################################################################################
-
-class DLLMDataCollator:
-    """
-    1. 对 batch 进行动态 padding
-    2. 为每个样本采样噪声水平 t ~ U(0,1)
-    3. 根据 t 将部分 token 替换为 [MASK]
-    4. 返回 noisy input_ids, labels (clean), corruption_mask, p_mask
-    """
-
-    def __init__(
-        self,
-        tokenizer: Any,
-        mask_token_id: int,
-        mask_epsilon: float = 0.001
-    ) -> None:
-        self.tokenizer = tokenizer
-        self.mask_token_id = mask_token_id
-        self.mask_epsilon = mask_epsilon
-
-    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        # 1. 动态 padding
-        batch = self.tokenizer.pad(
-            [{"input_ids": f["input_ids"]} for f in features],
-            return_tensors="pt",
-            padding=True,
-        )
-        input_ids = batch["input_ids"]
-        attention_mask = batch["attention_mask"]
-        labels = input_ids.clone()
-
-        bsz, seq_len = input_ids.shape
-        eps = self.mask_epsilon
-
-        # 2. 采样噪声水平 t ~ Uniform(0, 1)
-        t = torch.rand(bsz)
-
-        # 3. 计算每个位置的 mask 概率: p = (1 - eps) * t + eps
-        p_mask = ((1 - eps) * t + eps).unsqueeze(-1).expand(bsz, seq_len).contiguous()
-
-        # 4. 按概率替换为 [MASK]
-        corruption_mask = torch.rand(bsz, seq_len) < p_mask
-        corruption_mask = corruption_mask & attention_mask.bool()  # 不 mask padding
-
-        noisy_input_ids = torch.where(corruption_mask, self.mask_token_id, input_ids)
-
-        return {
-            "input_ids": noisy_input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-            "corruption_mask": corruption_mask,
-            "p_mask": p_mask,
-        }

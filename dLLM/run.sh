@@ -6,7 +6,9 @@ torchrun --nproc_per_node=1 --master_port=29500 train_qwen_dllm.py \
     --output_dir output/qwen_dllm \
     --per_device_train_batch_size 8 \
     --learning_rate 5e-5 \
-    --num_train_epochs 3 \
+    --num_train_epochs 1 \
     --bf16 \
+    --max_grad_norm 1.0 \
     --logging_steps 10 \
-    --save_steps 1000
+    --save_steps 5000 \
+    --resume_from_checkpoint auto
