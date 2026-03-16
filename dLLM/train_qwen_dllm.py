@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass, field
+from typing import Optional
 
 from transformers import (
     AutoTokenizer,
@@ -51,13 +52,13 @@ class QwenForMaskedDiffusion(Qwen2PreTrainedModel, DllmMixin):
         self.model = Qwen2Model(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # dLLM 特有配置
-        self.mask_token_id = getattr(config, "mask_token_id", config.vocab_size - 1)
-        self.mask_epsilon = getattr(config, "mask_epsilon", 0.001)
-
-        # 双向注意力 (DllmMixin)
-        self._make_bidirectional()
+        # 双向注意力
+        for layer in self.model.layers:
+            layer.self_attn.is_causal = False
+        self.model._update_causal_mask = self._bidirectional_mask
+        
         self.post_init()
+
 
     # ------------------------------------------------------------------
     #  权重绑定 (与 Qwen2ForCausalLM 一致)
@@ -77,23 +78,34 @@ class QwenForMaskedDiffusion(Qwen2PreTrainedModel, DllmMixin):
     # ------------------------------------------------------------------
     #  Forward: 输入与常规 LLM 一致, 噪声注入自动完成
     # ------------------------------------------------------------------
-    def forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
+    def forward(
+            self, 
+            input_ids: torch.Tensor, 
+            attention_mask: Optional[torch.Tensor] = None, 
+            labels: Optional[torch.Tensor] = None, 
+            **kwargs
+        ):
+        
         corruption_mask, p_mask = None, None
-
         if labels is not None and self.training:
-            bsz = input_ids.shape[0]
-            t = torch.rand(bsz, device=input_ids.device)
-            pad_id = getattr(self.config, "pad_token_id", 0) or 0
             input_ids, corruption_mask, p_mask = self.add_noise_to_tokens(
-                input_ids, t, pad_token_id=pad_id
+                input_ids, 
+                eps=getattr(self.config, "mask_epsilon", 0.001),
+                pad_token_id=getattr(self.config, "pad_token_id", 0),
+                mask_token_id=getattr(self.config, "mask_token_id", self.config.vocab_size - 1),
             )
 
         hidden_states = self.model(input_ids=input_ids, attention_mask=attention_mask)[0]
-        logits = self.lm_head(hidden_states).float()
+        logits: torch.Tensor = self.lm_head(hidden_states).float()
 
         loss = None
         if all([x is not None for x in (corruption_mask, p_mask, labels)]):
-            loss = self.dllm_loss(logits, labels, corruption_mask, p_mask)
+            loss = self.dllm_loss(
+                logits.view(-1, self.config.vocab_size),
+                labels.view(-1), 
+                corruption_mask, 
+                p_mask
+            )
 
         return MaskedLMOutput(loss=loss, logits=logits, hidden_states=hidden_states)
 

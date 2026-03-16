@@ -1,4 +1,3 @@
-import math
 from typing import Any, Optional
 
 import torch
@@ -12,24 +11,10 @@ import torch.nn.functional as F
 # ##################################################################################
 
 class DllmMixin:
-    """
-    dLLM 核心 Mixin，宿主类需满足:
-      - self.model: 含 .layers (nn.ModuleList) 的 Transformer backbone
-      - self.lm_head: 输出投影层
-      - self.config: 含 vocab_size, eos_token_id
-      - self.mask_token_id: int
-      - self.mask_epsilon: float
-    """
 
     # ------------------------------------------------------------------
     #  双向注意力改造
     # ------------------------------------------------------------------
-    def _make_bidirectional(self):
-        """移除 causal mask，使所有 attention 层变为双向"""
-        for layer in self.model.layers:
-            layer.self_attn.is_causal = False
-        self.model._update_causal_mask = self._bidirectional_mask
-
     def _bidirectional_mask(self, attention_mask, input_tensor, *args, **kwargs):
         """
         双向注意力 mask: 仅遮蔽 padding token。
@@ -48,32 +33,46 @@ class DllmMixin:
     # ------------------------------------------------------------------
     #  MDM-style noise (token masking)
     # ------------------------------------------------------------------
-    def add_noise_to_tokens(self, input_ids: torch.LongTensor, t: torch.FloatTensor,
-                            eps: float = None, pad_token_id: int = 0):
+    def add_noise_to_tokens(
+            self, 
+            input_ids: torch.LongTensor, 
+            eps: float, 
+            pad_token_id: int,
+            mask_token_id: int
+        ):
         """
-        根据噪声水平 t 将 token 替换为 [MASK]。
-        p_mask = (1 - eps) * t + eps,  t=0→eps, t=1→1
+        MDM-style 前向噪声过程: 随机将部分 token 替换为 [MASK]。
+
+        流程:
+          1. 为 batch 中每个样本采样噪声水平 t ~ U(0, 1)
+          2. 计算 mask 概率 p = (1 - ε)t + ε, 保证 p ∈ [ε, 1]
+          3. 每个位置以概率 p 独立替换为 [MASK], padding 位置不替换
+
+        返回:
+          noisy_input_ids:  加噪后的 input_ids, 部分 token 变为 mask_token_id
+          corruption_mask:  bool, 标记哪些位置被替换 [bsz, seq_len]
+          p_mask:           每个位置的 mask 概率, 用于加权损失 [bsz, seq_len]
         """
         batch_size, seq_len = input_ids.shape
-        eps = eps if eps is not None else self.mask_epsilon
+        t = torch.rand(input_ids.shape[0], device=input_ids.device)
         p_mask = (1 - eps) * t + eps
         p_mask = p_mask.unsqueeze(-1).expand(batch_size, seq_len)
         corruption_mask = torch.rand(batch_size, seq_len, device=input_ids.device) < p_mask
         corruption_mask = corruption_mask & (input_ids != pad_token_id)
-        noisy_input_ids = torch.where(corruption_mask, self.mask_token_id, input_ids)
+        noisy_input_ids = torch.where(corruption_mask, mask_token_id, input_ids)
         return noisy_input_ids, corruption_mask, p_mask
 
     # ------------------------------------------------------------------
     #  加权交叉熵损失
     # ------------------------------------------------------------------
-    def dllm_loss(self, logits, labels, corruption_mask, p_mask):
+    def dllm_loss(self, flatten_logits, flatten_labels, corruption_mask, p_mask):
         """DLLM 加权交叉熵: loss[mask] / p_mask[mask]"""
         ce = F.cross_entropy(
-            logits.view(-1, self.config.vocab_size),
-            labels.view(-1),
+            flatten_logits,
+            flatten_labels,
             reduction="none",
-        ).view(labels.shape)
-        return (ce[corruption_mask] / p_mask[corruption_mask]).sum() / labels.numel()
+        ).view(flatten_labels.shape)
+        return (ce[corruption_mask] / p_mask[corruption_mask]).sum() / flatten_labels.numel()
 
 
     # ------------------------------------------------------------------
