@@ -1,3 +1,4 @@
 lightning
 torchmetrics[image]
 torchvision
+torchdiffeq

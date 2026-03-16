@@ -1,17 +1,9 @@
-import lightning.pytorch as pl
-import torchvision.datasets as datasets
 import torch
-
+import torchvision.datasets as datasets
 from torchvision.transforms.v2 import Compose, RandomHorizontalFlip, ToDtype, ToImage
 
+import lightning.pytorch as pl
 
-def get_train_transform():
-    transform_list = [
-        ToImage(),
-        RandomHorizontalFlip(),
-        ToDtype(torch.float32, scale=True),
-    ]
-    return Compose(transform_list)
 
 class FlowDataModule(pl.LightningDataModule):
     def __init__(self, args):
@@ -21,7 +13,13 @@ class FlowDataModule(pl.LightningDataModule):
         self.dataset_val = None
 
     def setup(self, stage=None):
-        transform = get_train_transform()
+        transform = Compose(
+            [
+                ToImage(),
+                RandomHorizontalFlip(),
+                ToDtype(torch.float32, scale=True),
+            ]
+        )
         if self.args.dataset == "imagenet":
             dataset = datasets.ImageFolder(self.args.data_path, transform=transform)
         elif self.args.dataset == "cifar10":

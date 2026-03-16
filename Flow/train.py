@@ -1,30 +1,23 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the CC-by-NC license found in the
-# LICENSE file in the root directory of this source tree.
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-
+# Adapted from https://github.com/facebookresearch/flow_matching/blob/main/examples/image/train.py
 
 import os
 import gc
 import json
 import math
+import PIL.Image
 from pathlib import Path
 
 import torch
+from torch.nn import Module
 import torch.backends.cudnn as cudnn
-from utils import get_args_parser
-from dataset import FlowDataModule
+from torchmetrics.image.fid import FrechetInceptionDistance
+from torchvision.utils import save_image
+
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.utilities import rank_zero_info
 
-
-import PIL.Image
-import lightning.pytorch as pl
-import torch
 from flow_matching.path import CondOTProbPath, MixtureDiscreteProbPath
 from flow_matching.path.scheduler import PolynomialConvexScheduler
 from flow_matching.solver import MixtureDiscreteEulerSolver
@@ -33,11 +26,9 @@ from flow_matching.utils import ModelWrapper
 from models.discrete_unet import DiscreteUNetModel
 from models.ema import EMA
 from models.model_configs import instantiate_model
-from torch.nn import Module
-from torchmetrics.image.fid import FrechetInceptionDistance
-from torchvision.utils import save_image
 
-from utils import get_time_discretization
+from dataset import FlowDataModule
+from utils import get_args_parser, get_time_discretization
 
 MASK_TOKEN = 256
 PRINT_FREQUENCY = 50
